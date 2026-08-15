@@ -5,6 +5,7 @@
 - [Permission and capability mapping](PERMISSION-CAPABILITY-MAPPING.md)
 - [Ribbon integration](RIBBON-INTEGRATION.md)
 - [Ribbon metadata example](RIBBON-METADATA-EXAMPLE.md)
+- [Platform compatibility](PLATFORM-COMPATIBILITY.md)
 
 Consumer applications reference only the DynamicUI24 modules they need and supply their own business behavior, data access, permissions, and branding.
 

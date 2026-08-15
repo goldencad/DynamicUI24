@@ -26,3 +26,31 @@ jobs:
         run: dotnet build DynamicUI24.slnx -c Release --no-restore
       - name: Test
         run: dotnet test DynamicUI24.slnx -c Release --no-build
+
+  publish:
+    name: Publish (${{ matrix.rid }})
+    needs: build-and-test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+          - os: windows-latest
+            rid: win-arm64
+          - os: macos-latest
+            rid: osx-arm64
+          - os: macos-latest
+            rid: osx-x64
+          - os: ubuntu-latest
+            rid: linux-x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+      - name: Publish demo self-contained
+        run: >-
+          dotnet publish samples/DynamicUI24.Demo/DynamicUI24.Demo.csproj
+          -c Release -r ${{ matrix.rid }} --self-contained true

@@ -15,6 +15,8 @@
 - [Ribbon definition](RIBBON-DEFINITION.md)
 - [Ribbon context](RIBBON-CONTEXT.md)
 - [UI command registry](UI-COMMAND-REGISTRY.md)
+- [Supported platforms](SUPPORTED-PLATFORMS.md)
+- [Cross-platform dependencies](CROSS-PLATFORM-DEPENDENCIES.md)
 
 DynamicUI24 is split into independently maintainable framework modules.
 
