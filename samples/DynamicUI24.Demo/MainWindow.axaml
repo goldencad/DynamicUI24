@@ -2,19 +2,9 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="DynamicUI24.Demo.MainWindow"
         Title="DynamicUI24 Demo"
-        Width="680"
-        Height="420">
-  <Grid Margin="24" RowDefinitions="Auto,Auto,*" RowSpacing="16">
-    <TextBlock FontSize="24" Text="DynamicUI24 Demo" />
-    <StackPanel Grid.Row="1" Spacing="6">
-      <TextBlock Text="Select workspace" />
-      <ComboBox x:Name="WorkspaceSelector"
-                Width="420"
-                HorizontalAlignment="Left"
-                SelectionChanged="WorkspaceSelectionChanged" />
-    </StackPanel>
-    <Border Grid.Row="2" Padding="16" BorderThickness="1" BorderBrush="Gray">
-      <ContentControl x:Name="HostContainer" />
-    </Border>
-  </Grid>
+        Width="920"
+        Height="680"
+        MinWidth="760"
+        MinHeight="560">
+  <ContentControl x:Name="ShellContainer" />
 </Window>

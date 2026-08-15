@@ -132,7 +132,11 @@ public sealed class WorkspaceResolutionTests
 {
     [Theory]
     [InlineData("SETUP")]
+    [InlineData("DATA_ENTRY")]
     [InlineData("REPORT")]
+    [InlineData("HISTORY_DOCUMENT")]
+    [InlineData("DASHBOARD")]
+    [InlineData("SIGNING")]
     public void StandardWorkspaceResolves(string code)
     {
         var resolver = new WorkspaceResolver(TemplateRegistryTests.RegisterStandardTemplates());

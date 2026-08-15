@@ -1,0 +1,25 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="DynamicUI24.Avalonia.Presentation.SharedStateView">
+  <Border Padding="16" CornerRadius="8"
+          Background="{DynamicResource DuiSurfaceRaisedBrush}"
+          BorderBrush="{DynamicResource DuiBorderBrush}"
+          BorderThickness="1">
+    <StackPanel Spacing="8">
+      <StackPanel Orientation="Horizontal" Spacing="10">
+        <PathIcon x:Name="StateIcon" Width="20" Height="20"
+                  Foreground="{DynamicResource DuiInfoBrush}" />
+        <TextBlock x:Name="MessageText" VerticalAlignment="Center"
+                   Foreground="{DynamicResource DuiTextBrush}" />
+      </StackPanel>
+      <ProgressBar x:Name="LoadingBar" IsIndeterminate="True" Height="3" />
+      <TextBlock x:Name="DiagnosticText" FontSize="12"
+                 Foreground="{DynamicResource DuiTextMutedBrush}" />
+      <Expander x:Name="DetailsExpander" Header="Developer details">
+        <TextBlock x:Name="DetailsText" TextWrapping="Wrap"
+                   Foreground="{DynamicResource DuiTextMutedBrush}" />
+      </Expander>
+      <Button x:Name="RetryButton" Content="Retry" HorizontalAlignment="Left" />
+    </StackPanel>
+  </Border>
+</UserControl>

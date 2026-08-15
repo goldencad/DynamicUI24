@@ -33,6 +33,24 @@ public sealed class ArchitectureBoundaryTests
     }
 
     [Fact]
+    public void SharedHasNoConsumerCoreOrTemplateDependencies()
+    {
+        AssertProjectAndAssemblyReferencesExclude("DynamicUI24.Shared", static name =>
+            name.Equals("DynamicUI24.Core", StringComparison.Ordinal) ||
+            name.Equals("DynamicUI24.Demo", StringComparison.Ordinal) ||
+            name.StartsWith("DynamicUI24.Template.", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void PresentationFrameworkHasNoConsumerOrTemplateDependency()
+    {
+        AssertProjectAndAssemblyReferencesExclude("DynamicUI24.Avalonia", static name =>
+            name.Equals("DynamicUI24.Demo", StringComparison.Ordinal) ||
+            name.StartsWith("DynamicUI24.Template.", StringComparison.Ordinal) ||
+            name.Contains("PayCalc24", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public void FrameworkProjectsDoNotReferenceDemo()
     {
         foreach (var project in FrameworkProjects())

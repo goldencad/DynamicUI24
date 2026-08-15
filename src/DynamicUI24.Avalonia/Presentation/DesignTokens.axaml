@@ -1,0 +1,43 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <ResourceDictionary.ThemeDictionaries>
+    <ResourceDictionary x:Key="Light">
+      <SolidColorBrush x:Key="DuiSurfaceBrush" Color="#FFF8FAFC" />
+      <SolidColorBrush x:Key="DuiSurfaceRaisedBrush" Color="#FFFFFFFF" />
+      <SolidColorBrush x:Key="DuiTextBrush" Color="#FF172033" />
+      <SolidColorBrush x:Key="DuiTextMutedBrush" Color="#FF667085" />
+      <SolidColorBrush x:Key="DuiBorderBrush" Color="#FFD0D5DD" />
+      <SolidColorBrush x:Key="DuiAccentBrush" Color="#FF2563EB" />
+      <SolidColorBrush x:Key="DuiAccentTextBrush" Color="#FFFFFFFF" />
+      <SolidColorBrush x:Key="DuiSelectionBrush" Color="#FFDCE8FF" />
+      <SolidColorBrush x:Key="DuiHoverBrush" Color="#FFEFF4FA" />
+      <SolidColorBrush x:Key="DuiDisabledBrush" Color="#FF98A2B3" />
+      <SolidColorBrush x:Key="DuiSuccessBrush" Color="#FF16803C" />
+      <SolidColorBrush x:Key="DuiWarningBrush" Color="#FFB54708" />
+      <SolidColorBrush x:Key="DuiErrorBrush" Color="#FFD92D20" />
+      <SolidColorBrush x:Key="DuiInfoBrush" Color="#FF175CD3" />
+      <SolidColorBrush x:Key="DuiGridBrush" Color="#FFE4E7EC" />
+      <SolidColorBrush x:Key="DuiReadOnlyBrush" Color="#FFF2F4F7" />
+      <SolidColorBrush x:Key="DuiCalculatedBrush" Color="#FFF4EBFF" />
+    </ResourceDictionary>
+    <ResourceDictionary x:Key="Dark">
+      <SolidColorBrush x:Key="DuiSurfaceBrush" Color="#FF101828" />
+      <SolidColorBrush x:Key="DuiSurfaceRaisedBrush" Color="#FF1D2939" />
+      <SolidColorBrush x:Key="DuiTextBrush" Color="#FFF2F4F7" />
+      <SolidColorBrush x:Key="DuiTextMutedBrush" Color="#FF98A2B3" />
+      <SolidColorBrush x:Key="DuiBorderBrush" Color="#FF475467" />
+      <SolidColorBrush x:Key="DuiAccentBrush" Color="#FF84ADFF" />
+      <SolidColorBrush x:Key="DuiAccentTextBrush" Color="#FF101828" />
+      <SolidColorBrush x:Key="DuiSelectionBrush" Color="#FF234478" />
+      <SolidColorBrush x:Key="DuiHoverBrush" Color="#FF344054" />
+      <SolidColorBrush x:Key="DuiDisabledBrush" Color="#FF667085" />
+      <SolidColorBrush x:Key="DuiSuccessBrush" Color="#FF6CE9A6" />
+      <SolidColorBrush x:Key="DuiWarningBrush" Color="#FFFEC84B" />
+      <SolidColorBrush x:Key="DuiErrorBrush" Color="#FFFDA29B" />
+      <SolidColorBrush x:Key="DuiInfoBrush" Color="#FF84CAFF" />
+      <SolidColorBrush x:Key="DuiGridBrush" Color="#FF344054" />
+      <SolidColorBrush x:Key="DuiReadOnlyBrush" Color="#FF202939" />
+      <SolidColorBrush x:Key="DuiCalculatedBrush" Color="#FF3B2A56" />
+    </ResourceDictionary>
+  </ResourceDictionary.ThemeDictionaries>
+</ResourceDictionary>

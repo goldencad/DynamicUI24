@@ -1,5 +1,11 @@
 # Architecture
 
+- [Presentation foundation](PRESENTATION-FOUNDATION.md)
+- [Design tokens](DESIGN-TOKENS.md)
+- [Icon registry](ICON-REGISTRY.md)
+- [Localization](LOCALIZATION.md)
+- [Shell host](SHELL-HOST.md)
+
 DynamicUI24 is split into independently maintainable framework modules.
 
 - `DynamicUI24.Core` is the domain-neutral foundation and has no UI dependency.
