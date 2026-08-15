@@ -12,6 +12,8 @@ using DynamicUI24.Core.Workspaces;
 using DynamicUI24.Core.Navigation;
 using DynamicUI24.Core.ApplicationMenu;
 using DynamicUI24.Core.Ribbon;
+using DynamicUI24.Core.Templates;
+using DynamicUI24.Core.Setup;
 using DynamicUI24.Shared.Presentation;
 
 namespace DynamicUI24.Demo;
@@ -25,6 +27,7 @@ public sealed partial class MainWindow : Window
     private readonly AvaloniaThemeService themeService;
     private readonly SemanticIconRegistry iconRegistry;
     private readonly DynamicUI24.Avalonia.DynamicWorkspaceHost workspaceHost;
+    private readonly SetupWorkspaceHost setupWorkspaceHost;
     private readonly SharedStateView stateView;
     private readonly ICompanyContextProvider companyContext;
     private readonly CompanyScopeCoordinator companyScope;
@@ -87,6 +90,10 @@ public sealed partial class MainWindow : Window
         shellPresentation = new ShellPresentation(
             new ApplicationBrand("Framework Demo", DemoLogoKey, "#7C3AED"));
         workspaceHost = new DynamicUI24.Avalonia.DynamicWorkspaceHost(composition.Registry, localization);
+        setupWorkspaceHost = new SetupWorkspaceHost(DemoSetup.Categories, new DemoSetupProvider(),
+            new DemoSetupValidator(), DemoSetup.CreateEditors(), localization, iconRegistry,
+            companyContext.CurrentCompany);
+        workspaceHost.RegisterViewFactory(StandardTemplateCodes.Setup, _ => setupWorkspaceHost);
         workspaceNavigation = new WorkspaceNavigationService(workspaces);
         workspaceNavigation.NavigationChanged += (_, args) =>
         {
@@ -375,6 +382,7 @@ public sealed partial class MainWindow : Window
         RefreshRibbon();
         RefreshActionBars();
         RefreshTree(snapshot);
+        setupWorkspaceHost.UpdateContext(snapshot.Company, snapshot.AuthorizationContext);
     }
 
     private void RefreshRequirementResolution()
@@ -704,6 +712,7 @@ public sealed partial class MainWindow : Window
                 smokeTimer!.Stop();
                 await RunRibbonSmokeAsync();
                 await RunActionBarSmokeAsync();
+                await RunSetupSmokeAsync();
                 Console.WriteLine("SMOKE CLEAN_EXIT: PASS");
                 Close();
                 return;
@@ -835,6 +844,83 @@ public sealed partial class MainWindow : Window
 
     private static ResolvedAction ActionBarAction(DynamicActionBarHost host, string actionCode) =>
         host.ResolvedActionBar!.Actions.Single(x => x.Definition.ActionCode == actionCode);
+
+    private async Task RunSetupSmokeAsync()
+    {
+        await companyScope.SwitchCompanyAsync(DemoCompanyData.CompanyAId);
+        setupWorkspaceHost.UpdateContext(companyScope.Snapshot.Company, companyScope.Snapshot.AuthorizationContext);
+        workspaceSelector.SelectedIndex = workspaces.ToList().FindIndex(x => x.WorkspaceId == "setup-demo");
+        if (workspaceHost.Content != setupWorkspaceHost ||
+            !new[] { "GENERAL", "MASTER_CATALOGS", "WORKSPACES", "COLUMNS_VARIABLES", "NAVIGATION_TREE", "RIBBON", "ACTION_BARS", "DASHBOARD", "REPORTS" }
+                .All(setupWorkspaceHost.VisibleCategoryCodes.Contains) ||
+            setupWorkspaceHost.VisibleCategoryCodes.Count(x => x.StartsWith("CATALOG_", StringComparison.Ordinal)) < 9)
+            throw new InvalidOperationException("Setup tree or standard/catalog categories were not rendered.");
+        Console.WriteLine("SMOKE SETUP_TREE: PASS CATALOGS=" + setupWorkspaceHost.VisibleCategoryCodes.Count(x => x.StartsWith("CATALOG_", StringComparison.Ordinal)));
+
+        var catalogSelected = setupWorkspaceHost.SelectCategory("catalog-01");
+        var definitionSelected = setupWorkspaceHost.SelectDefinition("catalog-definition-01-a");
+        if (!catalogSelected || setupWorkspaceHost.DefinitionCount != 1 || !definitionSelected ||
+            setupWorkspaceHost.LastEditorKind != SetupEditorKind.PropertyForm)
+            throw new InvalidOperationException($"Catalog selection, definition list, or generic editor failed: " +
+                $"category={catalogSelected}/{setupWorkspaceHost.SelectedCategoryId}, rows={setupWorkspaceHost.DefinitionCount}, " +
+                $"definition={definitionSelected}, editor={setupWorkspaceHost.LastEditorKind}.");
+        Console.WriteLine("SMOKE SETUP_CATALOG_EDITOR: PASS");
+
+        setupWorkspaceHost.SetCandidateValue("NAME", "changed");
+        setupWorkspaceHost.SelectCategory("catalog-02");
+        if (setupWorkspaceHost.SelectedCategoryId != "catalog-01")
+            throw new InvalidOperationException("Dirty Setup navigation was not blocked.");
+        if ((await setupWorkspaceHost.ExecuteActionAsync(SetupActionCodes.Cancel)).Status != ActionCommandResultStatus.Success ||
+            setupWorkspaceHost.Lifecycle.Buffer!.IsDirty)
+            throw new InvalidOperationException("Setup cancel/revert failed.");
+        Console.WriteLine("SMOKE SETUP_DIRTY_CANCEL: PASS");
+
+        setupWorkspaceHost.SelectCategory("general");
+        if ((await setupWorkspaceHost.ExecuteActionAsync(SetupActionCodes.New)).Status != ActionCommandResultStatus.Success)
+            throw new InvalidOperationException("Setup New failed.");
+        setupWorkspaceHost.SetCandidateValue("NAME", "Published smoke definition");
+        if ((await setupWorkspaceHost.ExecuteActionAsync(SetupActionCodes.Save)).Status != ActionCommandResultStatus.Success ||
+            (await setupWorkspaceHost.ExecuteActionAsync(SetupActionCodes.Validate)).Status != ActionCommandResultStatus.Success ||
+            setupWorkspaceHost.Lifecycle.LastValidation?.IsValid != true ||
+            (await setupWorkspaceHost.ExecuteActionAsync(SetupActionCodes.Publish)).Status != ActionCommandResultStatus.Success)
+            throw new InvalidOperationException("Setup draft/validate/publish flow failed.");
+        Console.WriteLine("SMOKE SETUP_NEW_SAVE_VALIDATE_PUBLISH: PASS");
+        if ((await setupWorkspaceHost.ExecuteActionAsync(SetupActionCodes.Retire)).Status != ActionCommandResultStatus.Success ||
+            setupWorkspaceHost.Lifecycle.Buffer?.Source.Status != SetupDefinitionStatus.Retired)
+            throw new InvalidOperationException("Setup retire transition failed.");
+        Console.WriteLine("SMOKE SETUP_RETIRE: PASS");
+
+        var invalidSelected = setupWorkspaceHost.SelectDefinition("invalid-1");
+        var invalidValidation = await setupWorkspaceHost.ExecuteActionAsync(SetupActionCodes.Validate);
+        var invalidPublish = await setupWorkspaceHost.ExecuteActionAsync(SetupActionCodes.Publish);
+        if (!invalidSelected || invalidValidation.Status != ActionCommandResultStatus.Success ||
+            setupWorkspaceHost.Lifecycle.LastValidation?.IsValid != false || invalidPublish.Status != ActionCommandResultStatus.Denied)
+            throw new InvalidOperationException($"Invalid Setup draft flow failed: selected={invalidSelected}, " +
+                $"validate={invalidValidation.Status}, valid={setupWorkspaceHost.Lifecycle.LastValidation?.IsValid}, publish={invalidPublish.Status}.");
+        setupWorkspaceHost.Lifecycle.CancelChanges();
+        Console.WriteLine("SMOKE SETUP_INVALID_PUBLISH: BLOCKED");
+
+        setupWorkspaceHost.SelectDefinition("system-1");
+        if (!setupWorkspaceHost.IsCandidateReadOnly ||
+            (await setupWorkspaceHost.ExecuteActionAsync(SetupActionCodes.Clone)).Status != ActionCommandResultStatus.Success)
+            throw new InvalidOperationException("System read-only/clone behavior failed.");
+        Console.WriteLine("SMOKE SETUP_READONLY_CLONE: PASS");
+
+        setupWorkspaceHost.Lifecycle.CancelChanges();
+        setupWorkspaceHost.SelectCategory("columns");
+        setupWorkspaceHost.SelectDefinition("columns-1");
+        if (setupWorkspaceHost.LastEditorKind != SetupEditorKind.Unavailable)
+            throw new InvalidOperationException("Specialized editor placeholder was not safe.");
+        Console.WriteLine("SMOKE SETUP_PLACEHOLDER: SAFE_UNAVAILABLE");
+
+        languageSelector.SelectedItem = "vi-VN";
+        themeSelector.SelectedItem = ThemeMode.Light;
+        languageSelector.SelectedItem = "en-US";
+        themeSelector.SelectedItem = ThemeMode.Dark;
+        if (setupWorkspaceHost.SelectedCategoryId != "columns")
+            throw new InvalidOperationException("Setup culture/theme switch lost selection.");
+        Console.WriteLine("SMOKE SETUP_LOCALIZATION_THEME: PASS");
+    }
 
     private void EnsureSmokeWorkspacePreserved()
     {

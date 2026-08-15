@@ -80,6 +80,12 @@ internal sealed class DemoAuthorizationPresentationProvider : IAuthorizationPres
     private static readonly PermissionCode DataView = new("DATA.VIEW");
     private static readonly PermissionCode DataEdit = new("DATA.EDIT");
     private static readonly PermissionCode ReportView = new("REPORT.VIEW");
+    private static readonly PermissionCode SetupView = new("SETUP.VIEW");
+    private static readonly PermissionCode SetupCreate = new("SETUP.CREATE");
+    private static readonly PermissionCode SetupEdit = new("SETUP.EDIT");
+    private static readonly PermissionCode SetupValidate = new("SETUP.VALIDATE");
+    private static readonly PermissionCode SetupPublish = new("SETUP.PUBLISH");
+    private static readonly PermissionCode SetupRetire = new("SETUP.RETIRE");
     private static readonly CapabilityCode ReportExport = new("REPORT.EXPORT_PDF_AVAILABLE");
     private static readonly CapabilityCode Editing = new("DATA.EDITING_AVAILABLE");
     private long revision;
@@ -106,13 +112,14 @@ internal sealed class DemoAuthorizationPresentationProvider : IAuthorizationPres
         if (companyId == DemoCompanyData.CompanyAId)
         {
             return new(userContext.UserId, companyId,
-                [DataView, DataEdit, ReportView], [ReportExport, Editing], currentRevision);
+                [DataView, DataEdit, ReportView, SetupView, SetupCreate, SetupEdit, SetupValidate, SetupPublish, SetupRetire],
+                [ReportExport, Editing], currentRevision);
         }
 
         if (companyId == DemoCompanyData.CompanyBId)
         {
             return new(userContext.UserId, companyId,
-                [DataView, ReportView], [ReportExport], currentRevision);
+                [DataView, ReportView, SetupView, SetupCreate, SetupValidate], [ReportExport], currentRevision);
         }
 
         return EffectiveAuthorizationContext.Unavailable(

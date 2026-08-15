@@ -261,6 +261,42 @@ public sealed class ArchitectureBoundaryTests
     }
 
     [Fact]
+    public void SetupFoundationRemainsGenericAndBackendFree()
+    {
+        var directory = Path.Combine(RepositoryRoot, "src", "DynamicUI24.Core", "Setup");
+        var source = string.Join("\n", Directory.EnumerateFiles(directory, "*.cs").Select(File.ReadAllText));
+        Assert.DoesNotContain("PayCalc24", source, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Odoo", source, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("EntityFramework", source, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("System.Data", source, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("SvgPathData", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SetupEditorResolutionUsesRegistryWithoutDefinitionTypeSwitch()
+    {
+        var registryPath = Path.Combine(RepositoryRoot, "src", "DynamicUI24.Core", "Setup", "SetupEditors.cs");
+        var hostPath = Path.Combine(RepositoryRoot, "src", "DynamicUI24.Avalonia", "Presentation", "SetupWorkspaceHost.cs");
+        var registry = File.ReadAllText(registryPath);
+        var host = File.ReadAllText(hostPath);
+        Assert.Contains("SetupEditorRegistry", registry, StringComparison.Ordinal);
+        Assert.Contains("editors.Resolve(definition)", host, StringComparison.Ordinal);
+        Assert.DoesNotContain("DefinitionType switch", host, StringComparison.Ordinal);
+        Assert.DoesNotContain("Geometry.Parse", host, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SetupHostConsumesSharedActionBarAndSemanticIconPrimitives()
+    {
+        var path = Path.Combine(RepositoryRoot, "src", "DynamicUI24.Avalonia", "Presentation", "SetupWorkspaceHost.cs");
+        var source = File.ReadAllText(path);
+        Assert.Contains("DynamicActionBarHost", source, StringComparison.Ordinal);
+        Assert.Contains("SetupActionBarDefinitions", source, StringComparison.Ordinal);
+        Assert.Contains("SemanticIcon", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("SvgPathData", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void TemplateModulesContainNoActionBarBehavior()
     {
         foreach (var template in Projects.Values.Where(project =>

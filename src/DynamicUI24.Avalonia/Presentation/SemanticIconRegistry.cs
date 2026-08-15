@@ -56,5 +56,18 @@ public sealed class SemanticIconRegistry : IIconRegistry
         Register(new(StandardIconKeys.License, "M5,4 L19,4 L19,20 L12,17 L5,20 Z M8,9 L16,9 M8,13 L14,13"));
         Register(new(StandardIconKeys.About, "M12,3 A9,9 0 1 0 12,21 A9,9 0 1 0 12,3 M12,10 L12,17 M12,7 L12,7.1"));
         Register(new(StandardIconKeys.Exit, "M10,4 L4,4 L4,20 L10,20 M14,8 L20,12 L14,16 M20,12 L8,12"));
+        Register(new(StandardIconKeys.Setup, "M4,4 L20,4 L20,20 L4,20 Z M8,8 L16,8 M8,12 L16,12 M8,16 L13,16"));
+        Register(new(StandardIconKeys.Catalog, "M4,5 L10,5 L12,7 L20,7 L20,19 L4,19 Z"));
+        Register(new(StandardIconKeys.Workspace, "M3,4 L21,4 L21,20 L3,20 Z M9,4 L9,20"));
+        Register(new(StandardIconKeys.Columns, "M4,4 L20,4 L20,20 L4,20 Z M10,4 L10,20 M15,4 L15,20"));
+        Register(new(StandardIconKeys.Variable, "M5,6 L9,6 L12,18 L15,6 L19,6"));
+        Register(new(StandardIconKeys.Tree, "M12,4 L12,9 M6,9 L18,9 M6,9 L6,15 M18,9 L18,15 M3,15 L9,15 L9,20 L3,20 Z M15,15 L21,15 L21,20 L15,20 Z"));
+        Register(new(StandardIconKeys.Ribbon, "M3,5 L21,5 L21,13 L3,13 Z M6,8 L10,8 M13,8 L18,8 M6,16 L18,16 M6,19 L14,19"));
+        Register(new(StandardIconKeys.Action, "M4,12 L18,12 M13,7 L18,12 L13,17 M4,5 L8,5 M4,19 L8,19"));
+        Register(new(StandardIconKeys.Dashboard, "M4,4 L11,4 L11,11 L4,11 Z M13,4 L20,4 L20,11 L13,11 Z M4,13 L11,13 L11,20 L4,20 Z M13,13 L20,13 L20,20 L13,20 Z"));
+        Register(new(StandardIconKeys.Report, "M5,3 L16,3 L20,7 L20,21 L5,21 Z M15,3 L15,8 L20,8 M8,12 L17,12 M8,16 L17,16"));
+        Register(new(StandardIconKeys.Clone, "M8,8 L20,8 L20,20 L8,20 Z M4,4 L16,4 L16,8 M4,4 L4,16 L8,16"));
+        Register(new(StandardIconKeys.Publish, "M12,20 L12,5 M7,10 L12,5 L17,10 M5,20 L19,20"));
+        Register(new(StandardIconKeys.Retire, "M5,7 L19,7 M8,7 L8,20 M16,7 L16,20 M7,4 L17,4 L19,7 L5,7 Z M11,11 L15,15 M15,11 L11,15"));
     }
 }

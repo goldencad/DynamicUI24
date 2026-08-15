@@ -2,7 +2,7 @@
 
 Setup, DataEntry, Report, HistoryDocument, Dashboard, and Signing are independently registered modules. In Task 1 each owns a minimal `IDynamicTemplate` implementation and registration entry point; no module references another template.
 
-The implementations currently provide identity, version, capability declarations, validation, and a generic descriptor only. Actual template UI and behavior are implemented in later tasks.
+The modules begin with identity, version, capability declarations, validation, and generic descriptors. The Setup module now resolves to the Task 8 metadata-driven Setup foundation; the other specialized template UIs remain later work.
 
 ## Add a new template
 

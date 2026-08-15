@@ -43,6 +43,19 @@ public static class StandardIconKeys
     public static IconKey License { get; } = new("LICENSE");
     public static IconKey About { get; } = new("ABOUT");
     public static IconKey Exit { get; } = new("EXIT");
+    public static IconKey Setup { get; } = new("SETUP");
+    public static IconKey Catalog { get; } = new("CATALOG");
+    public static IconKey Workspace { get; } = new("WORKSPACE");
+    public static IconKey Columns { get; } = new("COLUMNS");
+    public static IconKey Variable { get; } = new("VARIABLE");
+    public static IconKey Tree { get; } = new("TREE");
+    public static IconKey Ribbon { get; } = new("RIBBON");
+    public static IconKey Action { get; } = new("ACTION");
+    public static IconKey Dashboard { get; } = new("DASHBOARD");
+    public static IconKey Report { get; } = new("REPORT");
+    public static IconKey Clone { get; } = new("CLONE");
+    public static IconKey Publish { get; } = new("PUBLISH");
+    public static IconKey Retire { get; } = new("RETIRE");
 }
 
 /// <summary>Portable SVG path payload resolved from a semantic key.</summary>

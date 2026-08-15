@@ -10,6 +10,7 @@ public sealed class DynamicWorkspaceHost : ContentControl
 {
     private readonly WorkspaceResolver resolver;
     private readonly ILocalizationService localization;
+    private readonly Dictionary<TemplateCode, Func<WorkspaceDefinition, Control>> viewFactories = new();
     private WorkspaceDefinition? currentDefinition;
 
     public DynamicWorkspaceHost(TemplateRegistry registry, ILocalizationService localization)
@@ -23,13 +24,21 @@ public sealed class DynamicWorkspaceHost : ContentControl
     public WorkspaceDefinition? CurrentDefinition => currentDefinition;
     public WorkspaceResolutionResult? CurrentResult { get; private set; }
 
+    public bool RegisterViewFactory(TemplateCode templateCode, Func<WorkspaceDefinition, Control> factory)
+    {
+        ArgumentNullException.ThrowIfNull(factory);
+        return viewFactories.TryAdd(templateCode, factory);
+    }
+
     public WorkspaceResolutionResult ShowWorkspace(WorkspaceDefinition definition)
     {
         currentDefinition = definition ?? throw new ArgumentNullException(nameof(definition));
         var result = resolver.Resolve(definition);
         CurrentResult = result;
         Content = result.IsSuccess
-            ? CreateSuccessContent(result.Workspace!, localization)
+            ? viewFactories.TryGetValue(definition.TemplateCode, out var factory)
+                ? factory(definition)
+                : CreateSuccessContent(result.Workspace!, localization)
             : CreateFailureContent(definition, result.Error!, localization);
         return result;
     }

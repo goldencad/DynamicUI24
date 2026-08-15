@@ -7,7 +7,8 @@ public sealed class SetupTemplate : DynamicTemplateBase
     public override TemplateCode TemplateCode => StandardTemplateCodes.Setup;
     public override string ModuleName => typeof(SetupTemplate).Assembly.GetName().Name!;
     public override IReadOnlyCollection<TemplateCapability> SupportedCapabilities { get; } =
-        [new("SEARCH"), new("FILTER")];
+        [new("SEARCH"), new("FILTER"), new("CREATE"), new("EDIT"), new("CLONE"),
+         new("VALIDATE"), new("PUBLISH"), new("RETIRE")];
 }
 
 public static class SetupTemplateRegistration
