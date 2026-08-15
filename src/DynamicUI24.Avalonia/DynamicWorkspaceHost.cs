@@ -34,6 +34,14 @@ public sealed class DynamicWorkspaceHost : ContentControl
         return result;
     }
 
+    /// <summary>Clears the active workspace when navigation has no safe target.</summary>
+    public void Clear()
+    {
+        currentDefinition = null;
+        CurrentResult = null;
+        Content = new TextBlock { Text = localization.Get(new("State.Empty")) };
+    }
+
     private void Refresh()
     {
         if (currentDefinition is not null)

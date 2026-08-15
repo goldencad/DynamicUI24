@@ -56,6 +56,13 @@ public sealed partial class ShellHost : UserControl
         set => WorkspacePresenter.Content = value;
     }
 
+    /// <summary>Optional left navigation surface; the shell owns layout only.</summary>
+    public Control? NavigationContent
+    {
+        get => NavigationPresenter.Content as Control;
+        set => NavigationPresenter.Content = value;
+    }
+
     /// <summary>The Ribbon is a separate shell region; the application menu never becomes a Ribbon tab.</summary>
     public Control? RibbonContent
     {

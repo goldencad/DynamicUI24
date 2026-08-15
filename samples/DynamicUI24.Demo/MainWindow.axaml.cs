@@ -8,6 +8,7 @@ using DynamicUI24.Avalonia.Presentation;
 using DynamicUI24.Core.Authorization;
 using DynamicUI24.Core.Companies;
 using DynamicUI24.Core.Workspaces;
+using DynamicUI24.Core.Navigation;
 using DynamicUI24.Core.ApplicationMenu;
 using DynamicUI24.Core.Ribbon;
 using DynamicUI24.Shared.Presentation;
@@ -28,6 +29,9 @@ public sealed partial class MainWindow : Window
     private readonly CompanyScopeCoordinator companyScope;
     private readonly ShellHost shell;
     private readonly DynamicRibbonHost ribbonHost;
+    private readonly DynamicTreeHost treeHost;
+    private readonly DynamicTreeResolver treeResolver = new();
+    private readonly TreeDefinition treeDefinition = DemoTree.Create();
     private readonly ComboBox workspaceSelector = new();
     private readonly ComboBox themeSelector = new();
     private readonly ComboBox languageSelector = new();
@@ -115,6 +119,9 @@ public sealed partial class MainWindow : Window
         ribbonHost.CommandCompleted += (_, result) =>
             shellPresentation.StatusMessage = $"Ribbon: {result.Status} · {result.DiagnosticCode ?? result.Message ?? "OK"}";
         shell.RibbonContent = ribbonHost;
+        treeHost = new DynamicTreeHost(localization, iconRegistry);
+        treeHost.NodeSelected += (_, args) => NavigateTreeNode(args.Node);
+        shell.NavigationContent = treeHost;
         shell.WorkspaceContent = BuildDemoSurface();
         ShellContainer.Content = shell;
 
@@ -331,6 +338,7 @@ public sealed partial class MainWindow : Window
             : string.Join(", ", snapshot.AuthorizationContext.CapabilityCodes.OrderBy(code => code.Value));
         RefreshRequirementResolution();
         RefreshRibbon();
+        RefreshTree(snapshot);
     }
 
     private void RefreshRequirementResolution()
@@ -359,6 +367,7 @@ public sealed partial class MainWindow : Window
             ? $"{definition.TemplateCode} · {result.Workspace!.TemplateModule}"
             : $"{definition.TemplateCode} · SAFE FAILURE";
         RefreshRibbon();
+        treeHost.SelectWorkspace(definition.WorkspaceId);
     }
 
     private void SetPresentationState()
@@ -417,6 +426,72 @@ public sealed partial class MainWindow : Window
         if (index >= 0) workspaceSelector.SelectedIndex = index;
     }
 
+    private void NavigateTreeNode(TreeNodeDefinition node)
+    {
+        if (node.WorkspaceId is null) return;
+        var index = workspaces.ToList().FindIndex(x => x.WorkspaceId.Equals(node.WorkspaceId, StringComparison.OrdinalIgnoreCase));
+        if (index >= 0) workspaceSelector.SelectedIndex = index;
+        else shellPresentation.StatusMessage = "Tree: WORKSPACE_UNKNOWN";
+    }
+
+    private void RefreshTree(CompanyScopeSnapshot snapshot)
+    {
+        var previouslySelectedNodeId = treeHost.SelectedNodeId;
+        var tree = treeResolver.Resolve(treeDefinition,
+            new TreeResolutionContext(snapshot.Company, snapshot.AuthorizationContext), workspaces);
+        treeHost.Show(tree);
+        var current = workspaceHost.CurrentDefinition;
+        if (current is not null && TreeContainsWorkspace(tree.RootNodes, current.WorkspaceId))
+        {
+            treeHost.SelectWorkspace(current.WorkspaceId);
+            return;
+        }
+        var fallback = NearestNavigableAncestor(previouslySelectedNodeId, tree.RootNodes) ?? FirstNavigable(tree.RootNodes);
+        if (fallback?.Definition.WorkspaceId is { } workspaceId)
+        {
+            NavigateTreeNode(fallback.Definition);
+        }
+        else
+        {
+            workspaceHost.Clear();
+            shellPresentation.CurrentWorkspaceId = null;
+            shellPresentation.CurrentWorkspaceTitle = null;
+            shellPresentation.StatusMessage = localization.Get(new("State.Empty"));
+        }
+    }
+
+    private ResolvedTreeNode? NearestNavigableAncestor(string? nodeId, IEnumerable<ResolvedTreeNode> visibleNodes)
+    {
+        if (nodeId is null) return null;
+        var visible = Flatten(visibleNodes).ToDictionary(x => x.Definition.NodeId, StringComparer.OrdinalIgnoreCase);
+        var definitions = treeDefinition.Nodes.ToDictionary(x => x.NodeId, StringComparer.OrdinalIgnoreCase);
+        while (definitions.TryGetValue(nodeId, out var node))
+        {
+            if (visible.TryGetValue(node.NodeId, out var resolved) && resolved.IsNavigable) return resolved;
+            nodeId = node.ParentNodeId;
+            if (nodeId is null) break;
+        }
+        return null;
+    }
+
+    private static bool TreeContainsWorkspace(IEnumerable<ResolvedTreeNode> nodes, string workspaceId) => nodes.Any(node =>
+        node.IsNavigable && string.Equals(node.Definition.WorkspaceId, workspaceId, StringComparison.OrdinalIgnoreCase) ||
+        TreeContainsWorkspace(node.Children, workspaceId));
+
+    private static ResolvedTreeNode? FirstNavigable(IEnumerable<ResolvedTreeNode> nodes)
+    {
+        foreach (var node in nodes)
+        {
+            if (node.IsNavigable) return node;
+            var nested = FirstNavigable(node.Children);
+            if (nested is not null) return nested;
+        }
+        return null;
+    }
+
+    private static IEnumerable<ResolvedTreeNode> Flatten(IEnumerable<ResolvedTreeNode> nodes) => nodes.SelectMany(node =>
+        new[] { node }.Concat(Flatten(node.Children)));
+
     private void RefreshFromRibbon()
     {
         if (workspaceHost.CurrentDefinition is { } workspace) workspaceHost.ShowWorkspace(workspace);
@@ -460,7 +535,7 @@ public sealed partial class MainWindow : Window
             if (smokeStep < workspaces.Count)
             {
                 workspaceSelector.SelectedIndex = smokeStep;
-                var result = workspaceHost.CurrentResult!;
+                var result = workspaceHost.CurrentResult ?? workspaceHost.ShowWorkspace(workspaces[smokeStep]);
                 Console.WriteLine($"SMOKE {workspaces[smokeStep].TemplateCode}: " +
                                   (result.IsSuccess ? "RESOLVED" : "SAFE_FAILURE"));
             }
