@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="Avalonia" />
+    <ProjectReference Include="../DynamicUI24.Core/DynamicUI24.Core.csproj" />
+    <ProjectReference Include="../DynamicUI24.Shared/DynamicUI24.Shared.csproj" />
+  </ItemGroup>
+</Project>

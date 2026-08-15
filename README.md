@@ -1,0 +1,25 @@
+# DynamicUI24
+
+DynamicUI24 is a reusable metadata-driven UI framework for cross-platform .NET/Avalonia business applications.
+
+This repository currently contains the .NET 9 solution structure, module boundaries, build/test infrastructure, a minimal Avalonia host, and CI baseline. Framework behavior will be introduced in later tasks.
+
+PayCalc24 is a future consumer/reference implementation, not a dependency.
+
+[Specification v0.6](docs/specification/DynamicUI24-Spec-v0.6.md) is the current source of truth.
+
+## Build
+
+```bash
+dotnet restore DynamicUI24.slnx
+dotnet build DynamicUI24.slnx -c Release --no-restore
+dotnet test DynamicUI24.slnx -c Release --no-build
+```
+
+## Repository layout
+
+- `src/` — framework core, shared contracts, Avalonia integration, templates, and optional extensions.
+- `samples/` — the minimal consumer/reference host.
+- `tests/` — foundational and executable architecture tests.
+- `benchmarks/` — benchmark harness for later performance work.
+- `docs/` — specification and concise architecture/adoption guidance.

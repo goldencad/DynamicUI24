@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <ProjectReference Include="../../src/DynamicUI24.Core/DynamicUI24.Core.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../src/DynamicUI24.Shared/DynamicUI24.Shared.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../src/DynamicUI24.Avalonia/DynamicUI24.Avalonia.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../src/Templates/DynamicUI24.Template.Setup/DynamicUI24.Template.Setup.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../src/Templates/DynamicUI24.Template.DataEntry/DynamicUI24.Template.DataEntry.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../src/Templates/DynamicUI24.Template.Report/DynamicUI24.Template.Report.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../src/Templates/DynamicUI24.Template.HistoryDocument/DynamicUI24.Template.HistoryDocument.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../src/Templates/DynamicUI24.Template.Dashboard/DynamicUI24.Template.Dashboard.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../src/Templates/DynamicUI24.Template.Signing/DynamicUI24.Template.Signing.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../src/Extensions/DynamicUI24.Excel/DynamicUI24.Excel.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../src/Extensions/DynamicUI24.Reporting/DynamicUI24.Reporting.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../src/Extensions/DynamicUI24.Documents/DynamicUI24.Documents.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../src/Extensions/DynamicUI24.Batch/DynamicUI24.Batch.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../../samples/DynamicUI24.Demo/DynamicUI24.Demo.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+</Project>

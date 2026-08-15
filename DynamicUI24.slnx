@@ -1,0 +1,31 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/DynamicUI24.Core/DynamicUI24.Core.csproj" />
+    <Project Path="src/DynamicUI24.Shared/DynamicUI24.Shared.csproj" />
+    <Project Path="src/DynamicUI24.Avalonia/DynamicUI24.Avalonia.csproj" />
+  </Folder>
+  <Folder Name="/src/Templates/">
+    <Project Path="src/Templates/DynamicUI24.Template.Setup/DynamicUI24.Template.Setup.csproj" />
+    <Project Path="src/Templates/DynamicUI24.Template.DataEntry/DynamicUI24.Template.DataEntry.csproj" />
+    <Project Path="src/Templates/DynamicUI24.Template.Report/DynamicUI24.Template.Report.csproj" />
+    <Project Path="src/Templates/DynamicUI24.Template.HistoryDocument/DynamicUI24.Template.HistoryDocument.csproj" />
+    <Project Path="src/Templates/DynamicUI24.Template.Dashboard/DynamicUI24.Template.Dashboard.csproj" />
+    <Project Path="src/Templates/DynamicUI24.Template.Signing/DynamicUI24.Template.Signing.csproj" />
+  </Folder>
+  <Folder Name="/src/Extensions/">
+    <Project Path="src/Extensions/DynamicUI24.Excel/DynamicUI24.Excel.csproj" />
+    <Project Path="src/Extensions/DynamicUI24.Reporting/DynamicUI24.Reporting.csproj" />
+    <Project Path="src/Extensions/DynamicUI24.Documents/DynamicUI24.Documents.csproj" />
+    <Project Path="src/Extensions/DynamicUI24.Batch/DynamicUI24.Batch.csproj" />
+  </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/DynamicUI24.Demo/DynamicUI24.Demo.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/DynamicUI24.Tests/DynamicUI24.Tests.csproj" />
+    <Project Path="tests/DynamicUI24.ArchitectureTests/DynamicUI24.ArchitectureTests.csproj" />
+  </Folder>
+  <Folder Name="/benchmarks/">
+    <Project Path="benchmarks/DynamicUI24.Benchmarks/DynamicUI24.Benchmarks.csproj" />
+  </Folder>
+</Solution>
