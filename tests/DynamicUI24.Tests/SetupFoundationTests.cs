@@ -224,6 +224,19 @@ public sealed class SetupFoundationTests
         Assert.True(lifecycle.Buffer.IsDirty);
     }
 
+    [Fact]
+    public void SplitResizeStateDoesNotReplaceCandidateOrSelectionIdentity()
+    {
+        var lifecycle = Lifecycle(out _);
+        lifecycle.Select(Definition("selected", values: new Dictionary<string, object?> { ["NAME"] = "source" }));
+        lifecycle.Buffer!.SetValue("NAME", "candidate");
+        var layout = new SplitNavigationLayoutState();
+        layout.Resize(390);
+        Assert.Equal("selected", lifecycle.Buffer.Source.DefinitionId);
+        Assert.Equal("candidate", lifecycle.Buffer.Candidate.Values["NAME"]);
+        Assert.True(lifecycle.Buffer.IsDirty);
+    }
+
     private static SetupCategoryDefinition Category(string id, string code, int order = 0, string? parent = null,
         PresentationRequirement? requirement = null) => new(id, code, new(code), Icon, order, parent,
             permissionRequirement: requirement);

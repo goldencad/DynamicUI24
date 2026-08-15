@@ -890,6 +890,17 @@ public sealed partial class MainWindow : Window
         Console.WriteLine("SMOKE SETUP_CATALOG_EDITOR: PASS");
 
         setupWorkspaceHost.SetCandidateValue("NAME", "changed");
+        var resizeWorkspaceId = workspaceHost.CurrentDefinition?.WorkspaceId;
+        var resizeCategoryId = setupWorkspaceHost.SelectedCategoryId;
+        if (!setupWorkspaceHost.HasResizableNavigationSplitter || setupWorkspaceHost.NavigationPaneWidth != 260 ||
+            setupWorkspaceHost.ResizeNavigationPane(390) != 390 ||
+            setupWorkspaceHost.NavigationPaneWidth != 390 || setupWorkspaceHost.ResizeNavigationPane(215) != 215 ||
+            setupWorkspaceHost.NavigationPaneWidth != 215 || !setupWorkspaceHost.Lifecycle.Buffer!.IsDirty ||
+            !Equals(setupWorkspaceHost.Lifecycle.Buffer.Candidate.Values["NAME"], "changed") ||
+            setupWorkspaceHost.SelectedCategoryId != resizeCategoryId || workspaceHost.CurrentDefinition?.WorkspaceId != resizeWorkspaceId ||
+            shellPresentation.CultureName != "en-US" || shellPresentation.Theme != ThemeMode.Dark)
+            throw new InvalidOperationException("Setup split-navigation resize lost layout or workspace state.");
+        Console.WriteLine("SMOKE SETUP_SPLITTER: 260_TO_390_TO_215 STATE_PRESERVED");
         setupWorkspaceHost.SelectCategory("catalog-02");
         if (setupWorkspaceHost.SelectedCategoryId != "catalog-01")
             throw new InvalidOperationException("Dirty Setup navigation was not blocked.");

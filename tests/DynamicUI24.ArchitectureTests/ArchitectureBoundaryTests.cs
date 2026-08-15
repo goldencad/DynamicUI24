@@ -299,6 +299,25 @@ public sealed class ArchitectureBoundaryTests
     }
 
     [Fact]
+    public void SplitNavigationLayoutIsGenericReusableAndRuntimeOnly()
+    {
+        var hostPath = Path.Combine(RepositoryRoot, "src", "DynamicUI24.Avalonia", "Presentation",
+            "DynamicSplitNavigationHost.cs");
+        var statePath = Path.Combine(RepositoryRoot, "src", "DynamicUI24.Shared", "Presentation",
+            "SplitNavigationLayout.cs");
+        var setupPath = Path.Combine(RepositoryRoot, "src", "DynamicUI24.Avalonia", "Presentation",
+            "SetupWorkspaceHost.cs");
+        var host = File.ReadAllText(hostPath);
+        var state = File.ReadAllText(statePath);
+        var setup = File.ReadAllText(setupPath);
+        Assert.Contains("GridSplitter", host, StringComparison.Ordinal);
+        Assert.Contains("DynamicSplitNavigationHost", setup, StringComparison.Ordinal);
+        Assert.DoesNotContain("DynamicUI24.Core.Setup", host, StringComparison.Ordinal);
+        Assert.DoesNotContain("Settings", state, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("File.", state, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void TemplateModulesContainNoActionBarBehavior()
     {
         foreach (var template in Projects.Values.Where(project =>

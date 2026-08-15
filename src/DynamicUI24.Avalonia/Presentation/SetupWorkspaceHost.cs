@@ -33,6 +33,7 @@ public sealed class SetupWorkspaceHost : Grid
     private readonly TextBox search = new() { Watermark = "Search" };
     private readonly DynamicActionBarHost topActions;
     private readonly DynamicActionBarHost bottomActions;
+    private readonly DynamicSplitNavigationHost splitLayout;
     private EffectiveAuthorizationContext? authorization;
     private CompanyDescriptor company;
     private SetupCategoryDefinition? selectedCategory;
@@ -59,11 +60,8 @@ public sealed class SetupWorkspaceHost : Grid
             new SetupRefreshService(RefreshDefinitions), commands);
         topActions = new(dispatcher, localization, icons);
         bottomActions = new(dispatcher, localization, icons);
+        splitLayout = new(new SplitNavigationLayoutState(260, 180, 520, 5));
 
-        ColumnDefinitions = new("260,*");
-        RowDefinitions = new("Auto,*,Auto");
-        ColumnSpacing = 12;
-        RowSpacing = 8;
         BuildLayout();
         categoryTree.NodeSelected += CategoryNodeSelected;
         definitionList.SelectionChanged += DefinitionSelectionChanged;
@@ -78,6 +76,9 @@ public sealed class SetupWorkspaceHost : Grid
     public int DefinitionCount => definitionList.ItemsSource?.Cast<object>().Count() ?? 0;
     public SetupEditorKind? LastEditorKind { get; private set; }
     public bool IsCandidateReadOnly => lifecycle.Buffer?.Candidate is { IsEditable: false } or { IsSystem: true };
+    public bool HasResizableNavigationSplitter => splitLayout.IsRuntimeResizable;
+    public double NavigationPaneWidth => splitLayout.NavigationWidth;
+    public double ResizeNavigationPane(double requestedWidth) => splitLayout.ResizeNavigation(requestedWidth);
 
     public bool SelectCategory(string categoryId)
     {
@@ -117,8 +118,6 @@ public sealed class SetupWorkspaceHost : Grid
     private void BuildLayout()
     {
         var left = Frame(new StackPanel { Spacing = 8, Children = { new TextBlock { Text = "Setup" }, categoryTree } });
-        Grid.SetRowSpan(left, 3);
-        Children.Add(left);
         var workspace = new Grid { RowDefinitions = new("Auto,Auto,*,Auto"), RowSpacing = 8 };
         workspace.Children.Add(topActions);
         Grid.SetRow(search, 1); workspace.Children.Add(search);
@@ -129,7 +128,9 @@ public sealed class SetupWorkspaceHost : Grid
         Grid.SetColumn(detail, 1); split.Children.Add(detail);
         Grid.SetRow(split, 2); workspace.Children.Add(split);
         Grid.SetRow(bottomActions, 3); workspace.Children.Add(bottomActions);
-        Grid.SetColumn(workspace, 1); Grid.SetRowSpan(workspace, 3); Children.Add(workspace);
+        splitLayout.NavigationContent = left;
+        splitLayout.WorkspaceContent = workspace;
+        Children.Add(splitLayout);
     }
 
     private static Border Frame(Control content)

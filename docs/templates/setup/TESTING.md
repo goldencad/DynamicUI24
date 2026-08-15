@@ -10,4 +10,6 @@ Coverage includes hierarchy/order, 9+ catalogs, duplicate/cycle/orphan safety, p
 
 Shared Tree tests cover configurable initial/page sizes, incremental expansion, Show less, independent hierarchy windows, selection reveal, and permission/Company filtering before paging. The macOS smoke verifies Setup's 5 → 10 → 5 catalog window and preservation across vi/en and Light/Dark changes.
 
+Split-layout tests cover width bounds, runtime-only reset behavior, and candidate identity preservation. GUI smoke resizes the rendered Setup navigation pane from 260 to 390 to 215 pixels and verifies the category, candidate, culture/theme, and active workspace remain unchanged.
+
 Architecture tests guard backend neutrality, registry-based editor resolution, semantic icons, shared Action Bars, template isolation, and absence of consumer-specific semantics.

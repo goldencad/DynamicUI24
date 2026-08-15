@@ -7,3 +7,5 @@ Task 8 is a foundation, not a collection of complete designers. Columns/Variable
 The Avalonia host uses semantic design-token brushes, `IconKey`, the shared authorization resolver, and shared top/bottom Dynamic Action Bars. Runtime culture or theme changes rebuild presentation only and do not replace the selected definition or candidate.
 
 The internal category pane consumes the shared `DynamicTreeHost`. Catalog children initially show five items in the Demo, expand five at a time through localized See more / Xem thêm, and can return to the initial window with Show less / Thu gọn. This limit is presentation paging, not a metadata or catalog-count limit.
+
+Setup places that tree and the definition/editor workspace inside the reusable `DynamicSplitNavigationHost`. Its draggable splitter adjusts the navigation width at runtime without replacing either pane. Task 8 intentionally does not persist the selected width.
