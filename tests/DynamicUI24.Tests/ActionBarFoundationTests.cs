@@ -161,6 +161,72 @@ public sealed class ActionBarFoundationTests
         Assert.Equal(1, refresh.Count);
     }
 
+    [Fact]
+    public void ActionVariantsAndMenusPreserveOrderingGroupsShortcutsAndTwoLevelLimit()
+    {
+        var menu = new ActionMenuItemDefinition("parent", "PARENT", new("Parent"), StandardIconKeys.Settings,
+            children:
+            [
+                new("b", "B", new("B"), StandardIconKeys.Edit, "B", 20, shortcutDisplay: "⌘B"),
+                new("a", "A", new("A"), StandardIconKeys.Add, "A", 10, groupCode: "CREATE"),
+            ]);
+        var split = new ActionDefinition("split", "SPLIT", new("Split"), StandardIconKeys.Add,
+            ActionType.CustomRegistered, registeredCommandCode: "DEFAULT", buttonVariant: ActionButtonVariant.SplitButton,
+            menuItems: [menu]);
+        Assert.Equal(ActionButtonVariant.SplitButton, split.ButtonVariant);
+        Assert.Equal(["A", "B"], split.MenuItems.Single().Children.Select(x => x.ItemCode));
+        Assert.Equal("⌘B", split.MenuItems.Single().Children[1].ShortcutDisplay);
+        Assert.Throws<ArgumentException>(() => new ActionDefinition("dropdown", "DROPDOWN", new("D"),
+            StandardIconKeys.Info, ActionType.CustomRegistered, buttonVariant: ActionButtonVariant.DropdownButton));
+        Assert.Throws<ArgumentException>(() => new ActionMenuItemDefinition("root", "ROOT", new("Root"), children:
+        [new("child", "CHILD", new("Child"), children: [new("third", "THIRD", new("Third"))])]));
+    }
+
+    [Fact]
+    public void ResolverFiltersMenuPermissionsAndFailsClosedForMissingCommand()
+    {
+        var permission = new PermissionCode("MENU.USE");
+        var action = new ActionDefinition("menu", "MENU", new("Menu"), StandardIconKeys.Info,
+            ActionType.CustomRegistered, registeredCommandCode: "DEFAULT", buttonVariant: ActionButtonVariant.DropdownButton,
+            menuItems:
+            [
+                new("enabled", "ENABLED", new("Enabled"), StandardIconKeys.Add, "OK"),
+                new("disabled", "DISABLED", new("Disabled"), StandardIconKeys.Edit, "NO", 10,
+                    new(permission, UnauthorizedBehavior: UnauthorizedBehavior.Disable)),
+                new("hidden", "HIDDEN", new("Hidden"), StandardIconKeys.Delete, "NO", 20,
+                    new(permission, UnauthorizedBehavior: UnauthorizedBehavior.Hide)),
+                new("missing", "MISSING", new("Missing"), new IconKey("UNKNOWN"), displayOrder: 30),
+            ]);
+        var result = new DynamicActionBarResolver().Resolve(new("bar", "BAR", ActionBarPosition.Top, [action]),
+            Context(CompanyA, Authorization(CompanyA, [], []), 0));
+        var items = result.Actions.Single().MenuItems;
+        Assert.Equal(["ENABLED", "DISABLED", "MISSING"], items.Select(x => x.Definition.ItemCode));
+        Assert.True(items[0].IsEnabled);
+        Assert.False(items[1].IsEnabled);
+        Assert.False(items[2].IsEnabled);
+        Assert.Contains(result.Diagnostics, x => x.Code == "ACTION_MENU_COMMAND_MISSING");
+    }
+
+    [Fact]
+    public async Task MenuDispatcherExecutesRegisteredAndSafelyHandlesUnknownDisabledAndGroupItems()
+    {
+        var registry = new ActionCommandRegistry();
+        registry.Register("OK", (_, _) => Task.FromResult(ActionCommandResult.Success("menu")));
+        var dispatcher = new ActionBarCommandDispatcher(new WorkspaceNavigationService([Data, Report]), new FakeRefresh(), registry);
+        var context = new ActionCommandExecutionContext(Context(CompanyA, Authorization(CompanyA, [], []), 0));
+        ResolvedActionMenuItem Item(string code, string? command, AuthorizationPresentationState state,
+            params ResolvedActionMenuItem[] children) => new(new(code, code, new(code), registeredCommandCode: command), state, [.. children]);
+        Assert.Equal(ActionCommandResultStatus.Success,
+            (await dispatcher.DispatchMenuItemAsync(Item("OK", "OK", AuthorizationPresentationState.VisibleEnabled), context)).Status);
+        Assert.Equal(ActionCommandResultStatus.Unavailable,
+            (await dispatcher.DispatchMenuItemAsync(Item("UNKNOWN", "UNKNOWN", AuthorizationPresentationState.VisibleEnabled), context)).Status);
+        Assert.Equal(ActionCommandResultStatus.Denied,
+            (await dispatcher.DispatchMenuItemAsync(Item("DENIED", "OK", AuthorizationPresentationState.VisibleDisabled), context)).Status);
+        Assert.Equal(ActionCommandResultStatus.Unavailable,
+            (await dispatcher.DispatchMenuItemAsync(Item("GROUP", null, AuthorizationPresentationState.VisibleEnabled,
+                Item("CHILD", "OK", AuthorizationPresentationState.VisibleEnabled)), context)).Status);
+    }
+
     private static ActionDefinition Action(string code, int order) =>
         new(code, code, new(code), StandardIconKeys.Refresh, ActionType.Refresh, order);
     private static ActionDefinition Registered(string code) =>

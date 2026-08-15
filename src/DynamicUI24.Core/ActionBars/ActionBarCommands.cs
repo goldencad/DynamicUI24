@@ -71,6 +71,17 @@ public sealed class ActionBarCommandDispatcher(
         };
     }
 
+    public Task<ActionCommandResult> DispatchMenuItemAsync(ResolvedActionMenuItem item,
+        ActionCommandExecutionContext context, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        ArgumentNullException.ThrowIfNull(context);
+        if (!item.IsEnabled) return Task.FromResult(ActionCommandResult.Denied());
+        if (item.Definition.Kind == ActionMenuItemKind.Separator || item.Definition.Children.Length > 0)
+            return Task.FromResult(ActionCommandResult.Unavailable("ACTION_MENU_ITEM_NOT_EXECUTABLE"));
+        return commands.ExecuteAsync(item.Definition.RegisteredCommandCode!, context, cancellationToken);
+    }
+
     private static ActionCommandResult FromNavigation(WorkspaceNavigationResult result) => result.IsSuccess
         ? ActionCommandResult.Success()
         : ActionCommandResult.Unavailable(result.DiagnosticCode ?? "WORKSPACE_UNAVAILABLE");

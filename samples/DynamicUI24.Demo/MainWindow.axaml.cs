@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -880,6 +881,22 @@ public sealed partial class MainWindow : Window
             throw new InvalidOperationException("Setup shared Tree incremental/show-less or presentation-state preservation failed.");
         Console.WriteLine("SMOKE SETUP_TREE_OVERFLOW: INITIAL=5 MORE=10 LESS=5 COMPANY_CULTURE_THEME_PRESERVED");
 
+        if (!setupWorkspaceHost.NavigateActionMenu(SetupActionCodes.New, Key.Down) ||
+            !setupWorkspaceHost.IsActionMenuOpen(SetupActionCodes.New) ||
+            !setupWorkspaceHost.LastActionMenuOpenUsedKeyboard(SetupActionCodes.New) ||
+            setupWorkspaceHost.FocusedActionMenuItemCode(SetupActionCodes.New) != "NEW_STANDARD" ||
+            setupWorkspaceHost.ActionMenuItemState(SetupActionCodes.New, "ADMIN_ONLY") != AuthorizationPresentationState.VisibleDisabled ||
+            setupWorkspaceHost.ActionMenuItemState(SetupActionCodes.New, "HIDDEN_ITEM") is not null ||
+            !setupWorkspaceHost.NavigateActionMenu(SetupActionCodes.New, Key.Escape) ||
+            setupWorkspaceHost.IsActionMenuOpen(SetupActionCodes.New))
+            throw new InvalidOperationException("Setup dropdown keyboard/open/close or permission presentation failed.");
+        if ((await setupWorkspaceHost.ExecuteActionMenuItemAsync(SetupActionCodes.New, "NEW_STANDARD")).Status != ActionCommandResultStatus.Success ||
+            (await setupWorkspaceHost.ExecuteActionAsync(SetupActionCodes.New)).Status != ActionCommandResultStatus.Success ||
+            (await setupWorkspaceHost.ExecuteActionMenuItemAsync(SetupActionCodes.New, "UNKNOWN_SAFE")).Status != ActionCommandResultStatus.Unavailable ||
+            (await setupWorkspaceHost.ExecuteActionMenuItemAsync(SetupActionCodes.New, "ADMIN_ONLY")).Status != ActionCommandResultStatus.Denied)
+            throw new InvalidOperationException("Setup menu selection, split default, or safe unknown-command handling failed.");
+        Console.WriteLine("SMOKE SETUP_ACTION_VARIANTS: DROPDOWN_KEYBOARD SPLIT_DEFAULT PERMISSIONS UNKNOWN_SAFE PASS");
+
         var catalogSelected = setupWorkspaceHost.SelectCategory("catalog-01");
         var definitionSelected = setupWorkspaceHost.SelectDefinition("catalog-definition-01-a");
         if (!catalogSelected || setupWorkspaceHost.DefinitionCount != 1 || !definitionSelected ||
@@ -888,6 +905,20 @@ public sealed partial class MainWindow : Window
                 $"category={catalogSelected}/{setupWorkspaceHost.SelectedCategoryId}, rows={setupWorkspaceHost.DefinitionCount}, " +
                 $"definition={definitionSelected}, editor={setupWorkspaceHost.LastEditorKind}.");
         Console.WriteLine("SMOKE SETUP_CATALOG_EDITOR: PASS");
+
+        if (!setupWorkspaceHost.OpenActionMenu(SetupActionCodes.Clone) ||
+            !setupWorkspaceHost.IsActionMenuOpen(SetupActionCodes.Clone) ||
+            !setupWorkspaceHost.CloseActionMenu(SetupActionCodes.Clone) ||
+            setupWorkspaceHost.IsActionMenuOpen(SetupActionCodes.Clone) ||
+            setupWorkspaceHost.GetCategoryVisualState("catalog-01") != TreeRowVisualState.Selected ||
+            setupWorkspaceHost.GetCategoryVisualState("catalog-01", hover: true) != TreeRowVisualState.SelectedHover ||
+            setupWorkspaceHost.GetCategoryVisualState("catalog-02", hover: true) != TreeRowVisualState.Hover ||
+            setupWorkspaceHost.GetCategoryVisualState("catalog-02", focus: true) != TreeRowVisualState.KeyboardFocus ||
+            SetupWorkspaceHost.GetOverflowVisualState(hover: true) != TreeRowVisualState.Hover ||
+            treeHost.GetNodeVisualState("disabled") != TreeRowVisualState.Disabled ||
+            (await setupWorkspaceHost.ExecuteActionAsync(SetupActionCodes.ToggleDetails)).Status != ActionCommandResultStatus.Success)
+            throw new InvalidOperationException("Shared tree row states, dropdown mouse behavior, or toggle action failed.");
+        Console.WriteLine("SMOKE SHARED_TREE_ROW_UX: NORMAL HOVER SELECTED SELECTED_HOVER DISABLED FOCUS OVERFLOW PASS");
 
         setupWorkspaceHost.SetCandidateValue("NAME", "changed");
         var resizeWorkspaceId = workspaceHost.CurrentDefinition?.WorkspaceId;

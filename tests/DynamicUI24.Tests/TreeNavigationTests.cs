@@ -105,6 +105,17 @@ public sealed class TreeNavigationTests
         Assert.Equal("Thu gọn", localization.Get(new("Tree.ShowLess")));
     }
 
+    [Theory]
+    [InlineData(false, false, true, false, TreeRowVisualState.Normal)]
+    [InlineData(false, true, true, false, TreeRowVisualState.Hover)]
+    [InlineData(true, false, true, false, TreeRowVisualState.Selected)]
+    [InlineData(true, true, true, false, TreeRowVisualState.SelectedHover)]
+    [InlineData(false, true, false, false, TreeRowVisualState.Disabled)]
+    [InlineData(true, true, true, true, TreeRowVisualState.KeyboardFocus)]
+    public void TreeRowInteractionStatesAreSemanticAndDeterministic(bool selected, bool hover,
+        bool enabled, bool focus, TreeRowVisualState expected) =>
+        Assert.Equal(expected, TreeRowVisualStateResolver.Resolve(selected, hover, enabled, focus));
+
     private static WorkspaceDefinition[] Workspaces() =>
         [new("one", "One", StandardTemplateCodes.Setup), new("two", "Two", StandardTemplateCodes.Report)];
 }

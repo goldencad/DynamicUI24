@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
+using Avalonia.Input;
 using System.Collections.Immutable;
 using DynamicUI24.Core.ActionBars;
 using DynamicUI24.Core.Authorization;
@@ -91,6 +92,10 @@ public sealed class SetupWorkspaceHost : Grid
     public TreeChildWindow GetCategoryChildWindow(string? parentCategoryId) => categoryTree.GetChildWindow(parentCategoryId);
     public bool SetCategoryExpanded(string categoryId, bool isExpanded) => categoryTree.SetNodeExpanded(categoryId, isExpanded);
     public bool IsCategoryExpanded(string categoryId) => categoryTree.IsNodeExpanded(categoryId);
+    public TreeRowVisualState GetCategoryVisualState(string categoryId, bool hover = false, bool focus = false) =>
+        categoryTree.GetNodeVisualState(categoryId, hover, focus);
+    public static TreeRowVisualState GetOverflowVisualState(bool hover = false, bool focus = false) =>
+        DynamicTreeHost.GetOverflowVisualState(hover, focus);
     public bool ShowMoreCategories(string? parentCategoryId) => categoryTree.ShowMore(parentCategoryId);
     public bool ShowLessCategories(string? parentCategoryId) => categoryTree.ShowLess(parentCategoryId);
     public bool SelectDefinition(string definitionId)
@@ -106,6 +111,19 @@ public sealed class SetupWorkspaceHost : Grid
         SetupActionBarDefinitions.Top.Actions.Any(x => x.ActionCode == actionCode)
             ? topActions.ExecuteActionAsync(actionCode)
             : bottomActions.ExecuteActionAsync(actionCode);
+    public bool OpenActionMenu(string actionCode, bool fromKeyboard = false) =>
+        ActionHost(actionCode).OpenMenu(actionCode, fromKeyboard);
+    public bool CloseActionMenu(string actionCode) => ActionHost(actionCode).CloseMenu(actionCode);
+    public bool IsActionMenuOpen(string actionCode) => ActionHost(actionCode).IsMenuOpen(actionCode);
+    public bool NavigateActionMenu(string actionCode, Key key) => ActionHost(actionCode).NavigateMenuKeyboard(actionCode, key);
+    public string? FocusedActionMenuItemCode(string actionCode) => ActionHost(actionCode).FocusedMenuItemCode;
+    public bool LastActionMenuOpenUsedKeyboard(string actionCode) => ActionHost(actionCode).LastMenuOpenUsedKeyboard;
+    public AuthorizationPresentationState? ActionMenuItemState(string actionCode, string itemCode) =>
+        ActionHost(actionCode).GetMenuItemState(actionCode, itemCode);
+    public Task<ActionCommandResult> ExecuteActionMenuItemAsync(string actionCode, string itemCode) =>
+        ActionHost(actionCode).ExecuteMenuItemAsync(actionCode, itemCode);
+    private DynamicActionBarHost ActionHost(string actionCode) =>
+        SetupActionBarDefinitions.Top.Actions.Any(x => x.ActionCode == actionCode) ? topActions : bottomActions;
 
     public void UpdateContext(CompanyDescriptor newCompany, EffectiveAuthorizationContext? newAuthorization)
     {
@@ -301,6 +319,8 @@ public sealed class SetupWorkspaceHost : Grid
         commands.Register("SETUP.RETIRE", (_, _) => Execute(() => lifecycle.Retire()));
         commands.Register("SETUP.CANCEL", (_, _) => Execute(() => lifecycle.CancelChanges()));
         commands.Register("SETUP.SAVE", (_, _) => Execute(() => lifecycle.SaveDraft()));
+        commands.Register("SETUP.TOGGLE_DETAILS", (_, _) =>
+            Task.FromResult(ActionCommandResult.Success("Setup detail presentation toggled.")));
     }
 
     private Task<ActionCommandResult> Execute(Action action)

@@ -4,6 +4,8 @@ using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
 using DynamicUI24.Core.Navigation;
 using DynamicUI24.Shared.Presentation;
 
@@ -51,29 +53,32 @@ public sealed partial class DynamicTreeHost : UserControl
         if (workspaceId is null) return;
         var nodeId = FlattenResolved(resolved).FirstOrDefault(x =>
             string.Equals(x.Definition.WorkspaceId, workspaceId, StringComparison.OrdinalIgnoreCase))?.Definition.NodeId;
-        if (nodeId is not null) EnsureNodeVisible(nodeId);
+        if (nodeId is null) return;
+        EnsureNodeVisible(nodeId);
+        SelectedNodeId = nodeId;
+        SelectedWorkspaceId = workspaceId;
         Render();
         var item = Flatten(Tree.ItemsSource as IEnumerable<ITreeItemView>).OfType<TreeNodeView>().FirstOrDefault(x =>
             string.Equals(x.Definition.WorkspaceId, workspaceId, StringComparison.OrdinalIgnoreCase));
         if (item is null) return;
         applyingSelection = true;
         Tree.SelectedItem = item;
-        SelectedNodeId = item.Definition.NodeId;
-        SelectedWorkspaceId = item.Definition.WorkspaceId;
         applyingSelection = false;
     }
 
     public bool SelectNode(string? nodeId)
     {
         if (string.IsNullOrWhiteSpace(nodeId) || !EnsureNodeVisible(nodeId)) return false;
+        var resolvedNode = FlattenResolved(resolved).First(x =>
+            x.Definition.NodeId.Equals(nodeId, StringComparison.OrdinalIgnoreCase));
+        SelectedNodeId = resolvedNode.Definition.NodeId;
+        SelectedWorkspaceId = resolvedNode.IsNavigable ? resolvedNode.Definition.WorkspaceId : null;
         Render();
         var item = Flatten(Tree.ItemsSource as IEnumerable<ITreeItemView>).OfType<TreeNodeView>()
             .FirstOrDefault(x => x.Definition.NodeId.Equals(nodeId, StringComparison.OrdinalIgnoreCase));
         if (item is null) return false;
         applyingSelection = true;
         Tree.SelectedItem = item;
-        SelectedNodeId = item.Definition.NodeId;
-        SelectedWorkspaceId = item.IsEnabled ? item.Definition.WorkspaceId : null;
         applyingSelection = false;
         return true;
     }
@@ -91,6 +96,19 @@ public sealed partial class DynamicTreeHost : UserControl
     }
 
     public bool IsNodeExpanded(string nodeId) => expandedNodeIds.Contains(nodeId);
+
+    public TreeRowVisualState GetNodeVisualState(string nodeId, bool isPointerOver = false,
+        bool hasKeyboardFocus = false)
+    {
+        var node = FlattenResolved(resolved).FirstOrDefault(x =>
+            x.Definition.NodeId.Equals(nodeId, StringComparison.OrdinalIgnoreCase));
+        if (node is null) throw new ArgumentException("Unknown tree node.", nameof(nodeId));
+        return TreeRowVisualStateResolver.Resolve(SelectedNodeId?.Equals(nodeId, StringComparison.OrdinalIgnoreCase) == true,
+            isPointerOver, node.IsNavigable, hasKeyboardFocus);
+    }
+
+    public static TreeRowVisualState GetOverflowVisualState(bool isPointerOver = false,
+        bool hasKeyboardFocus = false) => TreeRowVisualStateResolver.Resolve(false, isPointerOver, true, hasKeyboardFocus);
 
     public TreeChildWindow GetChildWindow(string? parentNodeId)
     {
@@ -163,11 +181,14 @@ public sealed partial class DynamicTreeHost : UserControl
         localization.Get(node.Definition.DisplayNameKey),
         Geometry.Parse(icons.Resolve(node.Definition.IconKey ?? StandardIconKeys.Application).SvgPathData),
         node.IsNavigable, CreateViews(node.Children, node.Definition.NodeId),
-        expandedNodeIds.Contains(node.Definition.NodeId));
+        expandedNodeIds.Contains(node.Definition.NodeId),
+        SelectedNodeId?.Equals(node.Definition.NodeId, StringComparison.OrdinalIgnoreCase) == true);
 
     private void TreeSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (applyingSelection || Tree.SelectedItem is not TreeNodeView selected) return;
+        foreach (var node in Flatten(Tree.ItemsSource as IEnumerable<ITreeItemView>).OfType<TreeNodeView>())
+            node.IsSelected = ReferenceEquals(node, selected);
         SelectedNodeId = selected.Definition.NodeId;
         SelectedWorkspaceId = selected.IsEnabled ? selected.Definition.WorkspaceId : null;
         if (selected.IsEnabled) NodeSelected?.Invoke(this, new(selected.Definition));
@@ -237,14 +258,25 @@ public sealed partial class DynamicTreeHost : UserControl
 
 public interface ITreeItemView;
 public sealed class TreeNodeView(TreeNodeDefinition definition, string label, Geometry iconPath, bool isEnabled,
-    IReadOnlyList<ITreeItemView> children, bool isExpanded) : ITreeItemView
+    IReadOnlyList<ITreeItemView> children, bool isExpanded, bool isSelected) : ITreeItemView, INotifyPropertyChanged
 {
     public TreeNodeDefinition Definition { get; } = definition;
     public string Label { get; } = label;
     public Geometry IconPath { get; } = iconPath;
     public bool IsEnabled { get; } = isEnabled;
     public IReadOnlyList<ITreeItemView> Children { get; } = children;
-    public bool IsExpanded { get; set; } = isExpanded;
+    private bool expanded = isExpanded;
+    private bool selected = isSelected;
+    public bool IsDisabled => !IsEnabled;
+    public bool IsExpanded { get => expanded; set => Set(ref expanded, value); }
+    public bool IsSelected { get => selected; set => Set(ref selected, value); }
+    public event PropertyChangedEventHandler? PropertyChanged;
+    private void Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
+    {
+        if (EqualityComparer<T>.Default.Equals(field, value)) return;
+        field = value;
+        PropertyChanged?.Invoke(this, new(name));
+    }
 }
 public sealed record TreeOverflowView(string? ParentNodeId, int RemainingCount, string ShowMoreLabel,
     string ShowLessLabel, bool CanShowMore, bool CanShowLess) : ITreeItemView;

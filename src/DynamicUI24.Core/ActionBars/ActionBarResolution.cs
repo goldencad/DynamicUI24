@@ -40,7 +40,14 @@ public sealed record ActionBarResolutionContext(
 
 public sealed record ActionBarDiagnostic(string Code, string? ActionCode = null);
 
-public sealed record ResolvedAction(ActionDefinition Definition, AuthorizationPresentationState State)
+public sealed record ResolvedActionMenuItem(ActionMenuItemDefinition Definition, AuthorizationPresentationState State,
+    ImmutableArray<ResolvedActionMenuItem> Children)
+{
+    public bool IsEnabled => State == AuthorizationPresentationState.VisibleEnabled;
+}
+
+public sealed record ResolvedAction(ActionDefinition Definition, AuthorizationPresentationState State,
+    ImmutableArray<ResolvedActionMenuItem> MenuItems = default)
 {
     public bool IsEnabled => State == AuthorizationPresentationState.VisibleEnabled;
     public bool IsReadOnly => State == AuthorizationPresentationState.VisibleReadOnly;
@@ -79,11 +86,32 @@ public sealed class DynamicActionBarResolver
                 state = Combine(state, AuthorizationPresentationState.VisibleDisabled);
             else if (context.PresentationState.Kind == PresentationStateKind.ReadOnly)
                 state = Combine(state, AuthorizationPresentationState.VisibleReadOnly);
-            if (state != AuthorizationPresentationState.Hidden) actions.Add(new(action, state));
+            if (state != AuthorizationPresentationState.Hidden) actions.Add(new(action, state,
+                ResolveMenuItems(action.MenuItems, context.Authorization, diagnostics, action.ActionCode)));
         }
 
         return new(definition, actions.ToImmutable(), definition.Position == ActionBarPosition.Bottom ? context.Status : null,
             diagnostics.ToImmutable());
+    }
+
+    private static ImmutableArray<ResolvedActionMenuItem> ResolveMenuItems(
+        IEnumerable<ActionMenuItemDefinition> items, EffectiveAuthorizationContext? authorization,
+        ImmutableArray<ActionBarDiagnostic>.Builder diagnostics, string actionCode)
+    {
+        var result = ImmutableArray.CreateBuilder<ResolvedActionMenuItem>();
+        foreach (var item in items.Where(x => x.IsVisible).OrderBy(x => x.DisplayOrder).ThenBy(x => x.ItemCode, StringComparer.Ordinal))
+        {
+            var state = item.PermissionRequirement is null ? AuthorizationPresentationState.VisibleEnabled :
+                AuthorizationPresentationResolver.Resolve(item.PermissionRequirement, authorization);
+            if (state == AuthorizationPresentationState.Hidden) continue;
+            if (item.Kind == ActionMenuItemKind.Command && item.Children.Length == 0 && string.IsNullOrWhiteSpace(item.RegisteredCommandCode))
+            {
+                diagnostics.Add(new("ACTION_MENU_COMMAND_MISSING", $"{actionCode}.{item.ItemCode}"));
+                state = AuthorizationPresentationState.VisibleDisabled;
+            }
+            result.Add(new(item, state, ResolveMenuItems(item.Children, authorization, diagnostics, actionCode)));
+        }
+        return result.ToImmutable();
     }
 
     private static bool IsWellFormed(ActionDefinition action, IReadOnlySet<string>? workspaceIds,

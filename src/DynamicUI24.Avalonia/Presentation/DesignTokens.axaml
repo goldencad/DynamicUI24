@@ -11,6 +11,9 @@
       <SolidColorBrush x:Key="DuiAccentTextBrush" Color="#FFFFFFFF" />
       <SolidColorBrush x:Key="DuiSelectionBrush" Color="#FFDCE8FF" />
       <SolidColorBrush x:Key="DuiHoverBrush" Color="#FFEFF4FA" />
+      <SolidColorBrush x:Key="DuiSelectionHoverBrush" Color="#FFC9DCFF" />
+      <SolidColorBrush x:Key="DuiFocusBrush" Color="#FF175CD3" />
+      <SolidColorBrush x:Key="DuiDisabledSurfaceBrush" Color="#FFF2F4F7" />
       <SolidColorBrush x:Key="DuiDisabledBrush" Color="#FF98A2B3" />
       <SolidColorBrush x:Key="DuiSuccessBrush" Color="#FF16803C" />
       <SolidColorBrush x:Key="DuiWarningBrush" Color="#FFB54708" />
@@ -30,6 +33,9 @@
       <SolidColorBrush x:Key="DuiAccentTextBrush" Color="#FF101828" />
       <SolidColorBrush x:Key="DuiSelectionBrush" Color="#FF234478" />
       <SolidColorBrush x:Key="DuiHoverBrush" Color="#FF344054" />
+      <SolidColorBrush x:Key="DuiSelectionHoverBrush" Color="#FF305993" />
+      <SolidColorBrush x:Key="DuiFocusBrush" Color="#FF84CAFF" />
+      <SolidColorBrush x:Key="DuiDisabledSurfaceBrush" Color="#FF202939" />
       <SolidColorBrush x:Key="DuiDisabledBrush" Color="#FF667085" />
       <SolidColorBrush x:Key="DuiSuccessBrush" Color="#FF6CE9A6" />
       <SolidColorBrush x:Key="DuiWarningBrush" Color="#FFFEC84B" />

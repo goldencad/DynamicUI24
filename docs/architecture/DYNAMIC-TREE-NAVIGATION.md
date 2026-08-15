@@ -11,3 +11,7 @@ The shell observes a shared workspace selection: tree selection changes the work
 `TreeOverflowOptions` configures the initial visible child count, incremental page size, and optional Show less behavior. `TreeOverflowController` keeps a separate child window per parent identity, so paging never flattens or reparents nodes. Permission/capability and Company-aware resolution runs before windowing.
 
 `DynamicTreeHost` renders localized See more / Xem thêm and Show less / Thu gọn controls. It preserves selection, expands the window when a programmatic selection is outside the initial page, retains paging across Company/localization/theme rerenders, and restores the Tree scroll offset after a page change. Setup and future templates consume this shared host rather than implementing their own overflow list.
+
+## Shared row interaction
+
+All visible node and overflow rows use the same full-width semantic surface. `TreeRowVisualStateResolver` defines Normal, Hover, Selected, Selected+Hover, Disabled, and KeyboardFocus with explicit precedence. Avalonia styling maps those states exclusively to shared light/dark design-token brushes. Padding, minimum height, border thickness, and corner radius remain constant between states, so pointer hover cannot move the layout. Setup embeds `DynamicTreeHost`, so its navigation and See more / Show less rows inherit the same selection, keyboard-focus, permission, theme, and localization behavior as the global tree.

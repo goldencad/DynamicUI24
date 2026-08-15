@@ -248,6 +248,34 @@ public sealed class ArchitectureBoundaryTests
     }
 
     [Fact]
+    public void SharedActionVariantsRemainMetadataDrivenAndTemplateNeutral()
+    {
+        var core = File.ReadAllText(Path.Combine(RepositoryRoot, "src", "DynamicUI24.Core", "ActionBars",
+            "ActionBarDefinitions.cs"));
+        var host = File.ReadAllText(Path.Combine(RepositoryRoot, "src", "DynamicUI24.Avalonia", "Presentation",
+            "DynamicActionBarHost.cs"));
+        Assert.All(new[] { "DropdownButton", "SplitButton", "IconButton", "ToggleButton" }, value =>
+            Assert.Contains(value, core, StringComparison.Ordinal));
+        Assert.Contains("at most two hierarchy levels", core, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("DynamicUI24.Core.Setup", host, StringComparison.Ordinal);
+        Assert.DoesNotContain("SetupActionCodes", host, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GlobalAndSetupTreesUseSharedTokenBasedRowInteraction()
+    {
+        var treeXaml = File.ReadAllText(Path.Combine(RepositoryRoot, "src", "DynamicUI24.Avalonia", "Presentation",
+            "DynamicTreeHost.axaml"));
+        var setupHost = File.ReadAllText(Path.Combine(RepositoryRoot, "src", "DynamicUI24.Avalonia", "Presentation",
+            "SetupWorkspaceHost.cs"));
+        Assert.DoesNotContain("#", treeXaml, StringComparison.Ordinal);
+        Assert.All(new[] { "DuiHoverBrush", "DuiSelectionBrush", "DuiSelectionHoverBrush", "DuiFocusBrush", "DuiDisabledSurfaceBrush" },
+            token => Assert.Contains(token, treeXaml, StringComparison.Ordinal));
+        Assert.Contains("DynamicTreeHost", setupHost, StringComparison.Ordinal);
+        Assert.DoesNotContain("SetupTreeRow", setupHost, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ActionBarNavigationAndDispatchUseGenericCoreServices()
     {
         var path = Path.Combine(RepositoryRoot, "src", "DynamicUI24.Core", "ActionBars",

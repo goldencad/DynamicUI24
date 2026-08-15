@@ -172,6 +172,13 @@ public sealed class DictionaryLocalizationService : ILocalizationService
                 ["Setup.Validation.Warning"] = "Demo warning.",
                 ["Setup.List.Columns"] = "Code  |  Name  |  Type  |  Version  |  Status  |  Effective From  |  Effective To",
                 ["Setup.Search"] = "Search definitions",
+                ["Setup.Action.ToggleDetails"] = "Toggle details",
+                ["Setup.Menu.NewStandard"] = "New definition",
+                ["Setup.Menu.Advanced"] = "Advanced",
+                ["Setup.Menu.Unknown"] = "Unknown command proof",
+                ["Setup.Menu.AdminOnly"] = "Administrator only",
+                ["Setup.Menu.Hidden"] = "Hidden item",
+                ["Setup.Menu.CloneSelected"] = "Clone selected definition",
             },
             ["vi-VN"] = new Dictionary<string, string>(StringComparer.Ordinal)
             {
@@ -337,6 +344,13 @@ public sealed class DictionaryLocalizationService : ILocalizationService
                 ["Setup.Validation.Warning"] = "Cảnh báo demo.",
                 ["Setup.List.Columns"] = "Mã  |  Tên  |  Loại  |  Phiên bản  |  Trạng thái  |  Hiệu lực từ  |  Hiệu lực đến",
                 ["Setup.Search"] = "Tìm định nghĩa",
+                ["Setup.Action.ToggleDetails"] = "Bật/tắt chi tiết",
+                ["Setup.Menu.NewStandard"] = "Tạo định nghĩa mới",
+                ["Setup.Menu.Advanced"] = "Nâng cao",
+                ["Setup.Menu.Unknown"] = "Kiểm chứng lệnh không xác định",
+                ["Setup.Menu.AdminOnly"] = "Chỉ quản trị viên",
+                ["Setup.Menu.Hidden"] = "Mục bị ẩn",
+                ["Setup.Menu.CloneSelected"] = "Nhân bản định nghĩa đã chọn",
             },
         };
 

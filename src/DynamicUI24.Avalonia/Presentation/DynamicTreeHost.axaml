@@ -10,24 +10,57 @@
         <Style Selector="TreeViewItem">
           <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
         </Style>
+        <Style Selector="TreeViewItem /template/ ContentPresenter">
+          <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        </Style>
+        <Style Selector="Border.tree-row, Border.overflow-row">
+          <Setter Property="Background" Value="Transparent" />
+          <Setter Property="BorderBrush" Value="Transparent" />
+          <Setter Property="BorderThickness" Value="1" />
+          <Setter Property="CornerRadius" Value="7" />
+          <Setter Property="Padding" Value="8,5" />
+          <Setter Property="MinHeight" Value="30" />
+          <Setter Property="HorizontalAlignment" Value="Stretch" />
+        </Style>
+        <Style Selector="Border.tree-row:pointerover, Border.overflow-row:pointerover">
+          <Setter Property="Background" Value="{DynamicResource DuiHoverBrush}" />
+        </Style>
+        <Style Selector="Border.tree-row.selected">
+          <Setter Property="Background" Value="{DynamicResource DuiSelectionBrush}" />
+        </Style>
+        <Style Selector="Border.tree-row.selected:pointerover">
+          <Setter Property="Background" Value="{DynamicResource DuiSelectionHoverBrush}" />
+        </Style>
+        <Style Selector="Border.tree-row.disabled">
+          <Setter Property="Background" Value="{DynamicResource DuiDisabledSurfaceBrush}" />
+          <Setter Property="Opacity" Value="0.68" />
+        </Style>
+        <Style Selector="TreeViewItem:focus-within Border.tree-row, Border.overflow-row:focus-within">
+          <Setter Property="BorderBrush" Value="{DynamicResource DuiFocusBrush}" />
+        </Style>
       </TreeView.Styles>
       <TreeView.DataTemplates>
         <TreeDataTemplate DataType="local:TreeNodeView" ItemsSource="{Binding Children}">
-          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="7" IsEnabled="{Binding IsEnabled}">
-            <PathIcon Width="15" Height="15" Data="{Binding IconPath}"
-                      Foreground="{DynamicResource DuiAccentBrush}" />
-            <TextBlock Grid.Column="1" Text="{Binding Label}" VerticalAlignment="Center" />
-          </Grid>
+          <Border Classes="tree-row" Classes.selected="{Binding IsSelected}"
+                  Classes.disabled="{Binding IsDisabled}" IsEnabled="{Binding IsEnabled}">
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="7">
+              <PathIcon Width="15" Height="15" Data="{Binding IconPath}"
+                        Foreground="{DynamicResource DuiAccentBrush}" />
+              <TextBlock Grid.Column="1" Text="{Binding Label}" VerticalAlignment="Center" />
+            </Grid>
+          </Border>
         </TreeDataTemplate>
         <DataTemplate DataType="local:TreeOverflowView">
-          <StackPanel Orientation="Horizontal" Spacing="6" Margin="22,2,0,2">
-            <Button Content="{Binding ShowMoreLabel}" IsVisible="{Binding CanShowMore}"
-                    Click="ShowMoreClick" Padding="8,3" />
-            <TextBlock Text="{Binding RemainingCount}" IsVisible="{Binding CanShowMore}"
-                       VerticalAlignment="Center" Foreground="{DynamicResource DuiTextMutedBrush}" />
-            <Button Content="{Binding ShowLessLabel}" IsVisible="{Binding CanShowLess}"
-                    Click="ShowLessClick" Padding="8,3" />
-          </StackPanel>
+          <Border Classes="overflow-row" Margin="14,1,0,1">
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <Button Content="{Binding ShowMoreLabel}" IsVisible="{Binding CanShowMore}"
+                      Click="ShowMoreClick" Padding="6,2" />
+              <TextBlock Text="{Binding RemainingCount}" IsVisible="{Binding CanShowMore}"
+                         VerticalAlignment="Center" Foreground="{DynamicResource DuiTextMutedBrush}" />
+              <Button Content="{Binding ShowLessLabel}" IsVisible="{Binding CanShowLess}"
+                      Click="ShowLessClick" Padding="6,2" />
+            </StackPanel>
+          </Border>
         </DataTemplate>
       </TreeView.DataTemplates>
     </TreeView>

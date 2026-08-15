@@ -5,6 +5,8 @@ using DynamicUI24.Shared.Presentation;
 namespace DynamicUI24.Core.ActionBars;
 
 public enum ActionBarPosition { Top, Bottom }
+public enum ActionButtonVariant { Button, DropdownButton, SplitButton, IconButton, ToggleButton }
+public enum ActionMenuItemKind { Command, Separator }
 
 public enum ActionType
 {
@@ -27,6 +29,43 @@ public enum ActionType
 
 public enum ActionConfirmationMode { None, Confirm }
 
+public sealed record ActionMenuItemDefinition
+{
+    public ActionMenuItemDefinition(string itemId, string itemCode, LocalizationKey displayNameKey,
+        IconKey? iconKey = null, string? registeredCommandCode = null, int displayOrder = 0,
+        PresentationRequirement? permissionRequirement = null, bool isVisible = true,
+        string? groupCode = null, string? shortcutDisplay = null,
+        IEnumerable<ActionMenuItemDefinition>? children = null, ActionMenuItemKind kind = ActionMenuItemKind.Command)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(itemId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(itemCode);
+        var materialized = (children ?? []).OrderBy(x => x.DisplayOrder)
+            .ThenBy(x => x.ItemCode, StringComparer.Ordinal).ToImmutableArray();
+        if (materialized.Any(x => x.Children.Length > 0))
+            throw new ArgumentException("Action menus support at most two hierarchy levels.", nameof(children));
+        if (materialized.GroupBy(x => x.ItemId, StringComparer.OrdinalIgnoreCase).Any(x => x.Count() > 1))
+            throw new ArgumentException("Menu item identifiers must be unique among siblings.", nameof(children));
+        ItemId = itemId.Trim(); ItemCode = itemCode.Trim().ToUpperInvariant(); DisplayNameKey = displayNameKey;
+        IconKey = iconKey; RegisteredCommandCode = registeredCommandCode?.Trim().ToUpperInvariant();
+        DisplayOrder = displayOrder; PermissionRequirement = permissionRequirement; IsVisible = isVisible;
+        GroupCode = groupCode?.Trim().ToUpperInvariant(); ShortcutDisplay = shortcutDisplay?.Trim();
+        Children = materialized; Kind = kind;
+    }
+
+    public string ItemId { get; }
+    public string ItemCode { get; }
+    public LocalizationKey DisplayNameKey { get; }
+    public IconKey? IconKey { get; }
+    public string? RegisteredCommandCode { get; }
+    public int DisplayOrder { get; }
+    public PresentationRequirement? PermissionRequirement { get; }
+    public bool IsVisible { get; }
+    public string? GroupCode { get; }
+    public string? ShortcutDisplay { get; }
+    public ImmutableArray<ActionMenuItemDefinition> Children { get; }
+    public ActionMenuItemKind Kind { get; }
+}
+
 /// <summary>Immutable declarative action metadata. It never contains executable code.</summary>
 public sealed record ActionDefinition
 {
@@ -45,7 +84,10 @@ public sealed record ActionDefinition
         ActionConfirmationMode confirmationMode = ActionConfirmationMode.None,
         string? targetWorkspaceId = null,
         string? registeredCommandCode = null,
-        string? batchActionCode = null)
+        string? batchActionCode = null,
+        ActionButtonVariant buttonVariant = ActionButtonVariant.Button,
+        IEnumerable<ActionMenuItemDefinition>? menuItems = null,
+        bool isChecked = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(actionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(actionCode);
@@ -69,6 +111,14 @@ public sealed record ActionDefinition
         TargetWorkspaceId = targetWorkspaceId?.Trim();
         RegisteredCommandCode = registeredCommandCode?.Trim().ToUpperInvariant();
         BatchActionCode = batchActionCode?.Trim().ToUpperInvariant();
+        ButtonVariant = buttonVariant;
+        MenuItems = (menuItems ?? []).OrderBy(x => x.DisplayOrder)
+            .ThenBy(x => x.ItemCode, StringComparer.Ordinal).ToImmutableArray();
+        IsChecked = isChecked;
+        if (buttonVariant is ActionButtonVariant.DropdownButton or ActionButtonVariant.SplitButton && MenuItems.Length == 0)
+            throw new ArgumentException("Dropdown and Split actions require menu metadata.", nameof(menuItems));
+        if (buttonVariant == ActionButtonVariant.SplitButton && string.IsNullOrWhiteSpace(RegisteredCommandCode))
+            throw new ArgumentException("A Split action requires a default registered command.", nameof(registeredCommandCode));
     }
 
     public string ActionId { get; }
@@ -86,6 +136,9 @@ public sealed record ActionDefinition
     public string? TargetWorkspaceId { get; }
     public string? RegisteredCommandCode { get; }
     public string? BatchActionCode { get; }
+    public ActionButtonVariant ButtonVariant { get; }
+    public ImmutableArray<ActionMenuItemDefinition> MenuItems { get; }
+    public bool IsChecked { get; }
 
     private static bool IsTechnicalCode(string value) => value.Trim().All(character =>
         char.IsAsciiLetterOrDigit(character) || character is '_' or '-' or '.');

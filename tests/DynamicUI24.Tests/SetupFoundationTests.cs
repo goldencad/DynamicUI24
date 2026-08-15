@@ -195,7 +195,7 @@ public sealed class SetupFoundationTests
         var authorized = context with { Authorization = new(new("user"), Company.CompanyId, permissions, [], "r1"), Selection = new(1) };
         var enabled = new DynamicActionBarResolver().Resolve(SetupActionBarDefinitions.Top, authorized);
         Assert.All(enabled.Actions, action => Assert.True(action.IsEnabled));
-        Assert.Equal([SetupActionCodes.Retire, SetupActionCodes.Cancel, SetupActionCodes.Save],
+        Assert.Equal([SetupActionCodes.Retire, SetupActionCodes.Cancel, SetupActionCodes.Save, SetupActionCodes.ToggleDetails],
             SetupActionBarDefinitions.Bottom.Actions.Select(x => x.ActionCode));
     }
 
