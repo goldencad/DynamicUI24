@@ -2,7 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="DynamicUI24.Avalonia.Presentation.ShellHost">
   <Border Background="{DynamicResource DuiSurfaceBrush}">
-    <Grid RowDefinitions="Auto,*,Auto">
+    <Grid RowDefinitions="Auto,Auto,*,Auto">
       <Border Padding="18,12"
               Background="{DynamicResource DuiSurfaceRaisedBrush}"
               BorderBrush="{DynamicResource DuiBorderBrush}"
@@ -22,13 +22,14 @@
           <Button Grid.Column="2" x:Name="ExitButton" Click="ExitClicked" />
         </Grid>
       </Border>
-      <ContentControl Grid.Row="1" x:Name="WorkspacePresenter" Margin="18" />
-      <Border Grid.Row="1" x:Name="ApplicationMenuOverlay" IsVisible="False"
+      <ContentControl Grid.Row="1" x:Name="RibbonPresenter" />
+      <ContentControl Grid.Row="2" x:Name="WorkspacePresenter" Margin="18" />
+      <Border Grid.Row="2" x:Name="ApplicationMenuOverlay" IsVisible="False"
               Background="{DynamicResource DuiSurfaceBrush}"
               BorderBrush="{DynamicResource DuiBorderBrush}" BorderThickness="0,0,0,1">
         <ContentControl x:Name="ApplicationMenuPresenter" />
       </Border>
-      <Border Grid.Row="2" Padding="18,8"
+      <Border Grid.Row="3" Padding="18,8"
               Background="{DynamicResource DuiSurfaceRaisedBrush}"
               BorderBrush="{DynamicResource DuiBorderBrush}"
               BorderThickness="0,1,0,0">

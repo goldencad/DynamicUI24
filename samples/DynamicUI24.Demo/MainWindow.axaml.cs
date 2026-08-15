@@ -9,6 +9,7 @@ using DynamicUI24.Core.Authorization;
 using DynamicUI24.Core.Companies;
 using DynamicUI24.Core.Workspaces;
 using DynamicUI24.Core.ApplicationMenu;
+using DynamicUI24.Core.Ribbon;
 using DynamicUI24.Shared.Presentation;
 
 namespace DynamicUI24.Demo;
@@ -25,12 +26,15 @@ public sealed partial class MainWindow : Window
     private readonly SharedStateView stateView;
     private readonly ICompanyContextProvider companyContext;
     private readonly CompanyScopeCoordinator companyScope;
+    private readonly ShellHost shell;
+    private readonly DynamicRibbonHost ribbonHost;
     private readonly ComboBox workspaceSelector = new();
     private readonly ComboBox themeSelector = new();
     private readonly ComboBox languageSelector = new();
     private readonly ComboBox stateSelector = new();
     private readonly ComboBox companySelector = new();
     private readonly ComboBox unauthorizedBehaviorSelector = new();
+    private readonly ComboBox selectionSelector = new();
     private readonly TextBlock workspaceLabel = new();
     private readonly TextBlock themeLabel = new();
     private readonly TextBlock languageLabel = new();
@@ -50,6 +54,7 @@ public sealed partial class MainWindow : Window
     private readonly TextBlock resolutionLabel = new();
     private readonly TextBlock resolutionValue = new();
     private readonly TextBlock companyStateValue = new();
+    private readonly TextBlock selectionLabel = new();
     private DispatcherTimer? smokeTimer;
     private int smokeStep;
     private bool smokeAdvancing;
@@ -75,7 +80,7 @@ public sealed partial class MainWindow : Window
 
         var lifetime = (IClassicDesktopStyleApplicationLifetime)Application.Current!.ApplicationLifetime!;
         var exitService = new AvaloniaApplicationExitService(lifetime);
-        var shell = new ShellHost(
+        shell = new ShellHost(
             shellPresentation,
             localization,
             iconRegistry,
@@ -95,6 +100,21 @@ public sealed partial class MainWindow : Window
             companyScope,
             new DemoAccountPresentationProvider(),
             new DemoLicensePresentationProvider());
+        var commandRegistry = new UiCommandRegistry();
+        commandRegistry.Register("DEMO.HELLO", (_, _) =>
+            Task.FromResult(RibbonCommandResult.Success("Hello from a registered UI command.")));
+        commandRegistry.Register("DEMO.SELECTION", (_, _) =>
+            Task.FromResult(RibbonCommandResult.Success("Selection command dispatched.")));
+        var dispatcher = new RibbonCommandDispatcher(
+            new DemoRibbonNavigationService(workspaces, NavigateFromRibbon),
+            new DemoRibbonRefreshService(RefreshFromRibbon),
+            commandRegistry);
+        ribbonHost = new DynamicRibbonHost(
+            DemoRibbon.Create(), workspaces, CreateRibbonContext(workspaces[0]),
+            new DynamicRibbonResolver(), dispatcher, localization, iconRegistry);
+        ribbonHost.CommandCompleted += (_, result) =>
+            shellPresentation.StatusMessage = $"Ribbon: {result.Status} · {result.DiagnosticCode ?? result.Message ?? "OK"}";
+        shell.RibbonContent = ribbonHost;
         shell.WorkspaceContent = BuildDemoSurface();
         ShellContainer.Content = shell;
 
@@ -119,7 +139,7 @@ public sealed partial class MainWindow : Window
     {
         var selectors = new Grid
         {
-            ColumnDefinitions = new ColumnDefinitions("2*,*,*,*"),
+            ColumnDefinitions = new ColumnDefinitions("2*,*,*,*,*"),
             ColumnSpacing = 12,
             Children =
             {
@@ -127,6 +147,7 @@ public sealed partial class MainWindow : Window
                 Field(themeLabel, themeSelector, 1),
                 Field(languageLabel, languageSelector, 2),
                 Field(stateLabel, stateSelector, 3),
+                Field(selectionLabel, selectionSelector, 4),
             },
         };
 
@@ -265,6 +286,9 @@ public sealed partial class MainWindow : Window
             PresentationStateKind.Unavailable,
         };
         stateSelector.SelectionChanged += (_, _) => SetPresentationState();
+        selectionSelector.ItemsSource = new[] { 0, 1, 5 };
+        selectionSelector.SelectedIndex = 0;
+        selectionSelector.SelectionChanged += (_, _) => RefreshRibbon();
     }
 
     private void ConfigureCompanyProof()
@@ -306,6 +330,7 @@ public sealed partial class MainWindow : Window
             ? "—"
             : string.Join(", ", snapshot.AuthorizationContext.CapabilityCodes.OrderBy(code => code.Value));
         RefreshRequirementResolution();
+        RefreshRibbon();
     }
 
     private void RefreshRequirementResolution()
@@ -333,6 +358,7 @@ public sealed partial class MainWindow : Window
         shellPresentation.StatusMessage = result.IsSuccess
             ? $"{definition.TemplateCode} · {result.Workspace!.TemplateModule}"
             : $"{definition.TemplateCode} · SAFE FAILURE";
+        RefreshRibbon();
     }
 
     private void SetPresentationState()
@@ -361,6 +387,7 @@ public sealed partial class MainWindow : Window
         languageLabel.Text = localization.Get(new("Demo.Language"));
         stateLabel.Text = localization.Get(new("Demo.State"));
         iconLabel.Text = localization.Get(new("Demo.IconSamples"));
+        selectionLabel.Text = localization.Get(new("Demo.SelectionCount"));
         companyLabel.Text = localization.Get(new("Demo.Company"));
         currentCompanyLabel.Text = localization.Get(new("Demo.CurrentCompany"));
         profileLabel.Text = localization.Get(new("Demo.CompanyProfile"));
@@ -369,6 +396,31 @@ public sealed partial class MainWindow : Window
         requirementLabel.Text = $"{localization.Get(new("Demo.Requirement"))}: PermissionCode=DATA.EDIT";
         behaviorLabel.Text = localization.Get(new("Demo.UnauthorizedBehavior"));
         resolutionLabel.Text = localization.Get(new("Demo.ResolvedPresentation"));
+    }
+
+    private RibbonResolutionContext CreateRibbonContext(WorkspaceDefinition workspace) => new(
+        companyContext.CurrentCompany,
+        workspace,
+        workspace.TemplateCode,
+        companyScope.Snapshot.AuthorizationContext,
+        new RibbonSelectionContext(selectionSelector.SelectedItem is int count ? count : 0));
+
+    private void RefreshRibbon()
+    {
+        var workspace = workspaceHost.CurrentDefinition ?? workspaces[0];
+        ribbonHost.UpdateContext(CreateRibbonContext(workspace));
+    }
+
+    private void NavigateFromRibbon(WorkspaceDefinition workspace)
+    {
+        var index = workspaces.ToList().FindIndex(x => x.WorkspaceId == workspace.WorkspaceId);
+        if (index >= 0) workspaceSelector.SelectedIndex = index;
+    }
+
+    private void RefreshFromRibbon()
+    {
+        if (workspaceHost.CurrentDefinition is { } workspace) workspaceHost.ShowWorkspace(workspace);
+        shellPresentation.StatusMessage = localization.Get(new("Ribbon.RefreshComplete"));
     }
 
     private static SemanticIconRegistry CreateDemoIconRegistry()
@@ -440,19 +492,34 @@ public sealed partial class MainWindow : Window
                 var companyIndex = companyOffset switch { 0 => 0, 1 => 1, 2 => 2, _ => 0 };
                 companySelector.SelectedIndex = companyIndex;
                 await companyScope.SwitchCompanyAsync(companyContext.AvailableCompanies[companyIndex].CompanyId);
-                EnsureSmokeCompanySwitchPreserved(companyIndex);
                 var snapshot = companyScope.Snapshot;
+                var currentWorkspace = workspaceHost.CurrentDefinition ?? workspaces[0];
+                ribbonHost.UpdateContext(new RibbonResolutionContext(
+                    snapshot.Company, currentWorkspace, currentWorkspace.TemplateCode,
+                    snapshot.AuthorizationContext,
+                    new RibbonSelectionContext(selectionSelector.SelectedItem is int count ? count : 0)));
+                EnsureSmokeCompanySwitchPreserved(companyIndex);
                 var resolved = AuthorizationPresentationResolver.Resolve(
                     new PresentationRequirement(new PermissionCode("DATA.EDIT"), null, UnauthorizedBehavior.ReadOnly),
                     snapshot.AuthorizationContext);
+                var reportCommands = ribbonHost.ResolvedRibbon.Tabs.SelectMany(x => x.Groups)
+                    .Where(x => x.Definition.GroupCode == "REPORT_TOOLS")
+                    .SelectMany(x => x.Commands).ToArray();
+                if (companyIndex == 2 && (reportCommands.Length == 0 || reportCommands.Any(x => x.IsEnabled)))
+                    throw new InvalidOperationException("Unavailable Company authorization did not fail closed.");
+                if (companyIndex != 2 && !reportCommands.Any(x => x.Definition.CommandCode == "EXPORT" && x.IsEnabled))
+                    throw new InvalidOperationException("Company Ribbon authorization state was not refreshed.");
                 Console.WriteLine($"SMOKE COMPANY: {snapshot.Company.Code} {snapshot.Status} {resolved} " +
                                   $"PROFILE={snapshot.ProfileResult!.Profile!.LegalName} " +
                                   $"PERMISSIONS={snapshot.AuthorizationContext!.PermissionCodes.Count} " +
                                   $"CAPABILITIES={snapshot.AuthorizationContext.CapabilityCodes.Count}");
+                Console.WriteLine($"SMOKE RIBBON_COMPANY: {snapshot.Company.Code} " +
+                                  (companyIndex == 2 ? "FAIL_CLOSED" : "EXPORT_ENABLED"));
             }
             else
             {
                 smokeTimer!.Stop();
+                await RunRibbonSmokeAsync();
                 Console.WriteLine("SMOKE CLEAN_EXIT: PASS");
                 Close();
                 return;
@@ -465,6 +532,55 @@ public sealed partial class MainWindow : Window
             smokeAdvancing = false;
         }
     }
+
+    private async Task RunRibbonSmokeAsync()
+    {
+        if (ribbonHost.Content?.GetType().FullName != "ActiproSoftware.UI.Avalonia.Controls.Bars.Ribbon" ||
+            ribbonHost.ResolvedRibbon.Tabs.Length < 3)
+            throw new InvalidOperationException("Real metadata-driven Ribbon was not rendered.");
+        Console.WriteLine($"SMOKE RIBBON_CONTROL: PASS TABS={ribbonHost.ResolvedRibbon.Tabs.Length}");
+
+        foreach (var code in new[] { "REFRESH", "HELLO" })
+        {
+            var result = await ribbonHost.ExecuteCommandAsync(code);
+            if (result.Status != RibbonCommandResultStatus.Success)
+                throw new InvalidOperationException($"Ribbon command {code} failed: {result.Status}");
+            Console.WriteLine($"SMOKE RIBBON_{code}: PASS");
+        }
+        var unknown = await ribbonHost.ExecuteCommandAsync("UNKNOWN_SAFE");
+        if (unknown.Status != RibbonCommandResultStatus.Unavailable)
+            throw new InvalidOperationException("Unknown registered command did not fail safely.");
+        Console.WriteLine("SMOKE RIBBON_UNKNOWN: SAFE_FAILURE");
+
+        selectionSelector.SelectedItem = 0;
+        RefreshRibbon();
+        if (RibbonCommand("SELECTION_ACTION").IsEnabled)
+            throw new InvalidOperationException("Selection command must be disabled at zero selection.");
+        selectionSelector.SelectedItem = 1;
+        RefreshRibbon();
+        if (!RibbonCommand("SELECTION_ACTION").IsEnabled)
+            throw new InvalidOperationException("Selection command must be enabled with a selection.");
+        Console.WriteLine("SMOKE RIBBON_SELECTION: PASS");
+
+        workspaceSelector.SelectedIndex = 1;
+        if (ribbonHost.ResolvedRibbon.Tabs.SelectMany(x => x.Groups)
+            .Any(x => x.Definition.GroupCode == "REPORT_TOOLS"))
+            throw new InvalidOperationException("Report contextual group leaked outside report context.");
+        workspaceSelector.SelectedIndex = 2;
+        if (!ribbonHost.ResolvedRibbon.Tabs.SelectMany(x => x.Groups)
+            .Any(x => x.Definition.GroupCode == "REPORT_TOOLS"))
+            throw new InvalidOperationException("Report contextual group did not appear.");
+        Console.WriteLine("SMOKE RIBBON_CONTEXT: PASS");
+
+        var navigation = await ribbonHost.ExecuteCommandAsync("OPEN_REPORT");
+        if (navigation.Status != RibbonCommandResultStatus.Success || workspaceHost.CurrentDefinition?.WorkspaceId != "report-demo")
+            throw new InvalidOperationException("Ribbon navigation failed.");
+        Console.WriteLine("SMOKE RIBBON_NAVIGATE: PASS");
+    }
+
+    private ResolvedRibbonCommand RibbonCommand(string commandCode) => ribbonHost.ResolvedRibbon.Tabs
+        .SelectMany(x => x.Groups).SelectMany(x => x.Commands)
+        .Single(x => x.Definition.CommandCode == commandCode);
 
     private void EnsureSmokeWorkspacePreserved()
     {

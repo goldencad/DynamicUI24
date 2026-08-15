@@ -193,6 +193,44 @@ public sealed class ArchitectureBoundaryTests
         Assert.Empty(violations);
     }
 
+    [Fact]
+    public void RibbonModelAndDispatchRemainGenericCoreTypes()
+    {
+        var namespaces = ReadTypeNamespaces("DynamicUI24.Core");
+        Assert.Contains("DynamicUI24.Core.Ribbon", namespaces);
+        AssertProjectAndAssemblyReferencesExclude("DynamicUI24.Core", static name =>
+            name.Contains("Actipro", StringComparison.OrdinalIgnoreCase) ||
+            name.Contains("Avalonia", StringComparison.OrdinalIgnoreCase) ||
+            name.Contains("Odoo", StringComparison.OrdinalIgnoreCase) ||
+            name.Contains("PayCalc24", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void RibbonHostIsFrameworkOwnedAndAbsentFromTemplateModules()
+    {
+        Assert.Contains(ReadTypeNamespaces("DynamicUI24.Avalonia"), value =>
+            value.Equals("DynamicUI24.Avalonia.Presentation", StringComparison.Ordinal));
+        foreach (var template in Projects.Values.Where(project =>
+                     project.Name.StartsWith("DynamicUI24.Template.", StringComparison.Ordinal)))
+        {
+            Assert.DoesNotContain(ReadTypeNamespaces(template.Name), value =>
+                value.Contains("Ribbon", StringComparison.OrdinalIgnoreCase));
+            Assert.DoesNotContain(Directory.EnumerateFiles(Path.GetDirectoryName(template.Path)!, "*.cs", SearchOption.AllDirectories),
+                path => File.ReadAllText(path).Contains("Ribbon", StringComparison.Ordinal));
+        }
+    }
+
+    [Fact]
+    public void ApplicationMenuAndRibbonHaveSeparateShellRegions()
+    {
+        var shellXaml = File.ReadAllText(Path.Combine(RepositoryRoot,
+            "src", "DynamicUI24.Avalonia", "Presentation", "ShellHost.axaml"));
+        Assert.Contains("ApplicationMenuPresenter", shellXaml, StringComparison.Ordinal);
+        Assert.Contains("RibbonPresenter", shellXaml, StringComparison.Ordinal);
+        Assert.NotEqual(shellXaml.IndexOf("ApplicationMenuPresenter", StringComparison.Ordinal),
+            shellXaml.IndexOf("RibbonPresenter", StringComparison.Ordinal));
+    }
+
     private static void AssertProjectAndAssemblyReferencesExclude(
         string projectName,
         Func<string, bool> isForbidden)

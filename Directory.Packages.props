@@ -6,6 +6,7 @@
     <PackageVersion Include="Avalonia" Version="11.3.2" />
     <PackageVersion Include="Avalonia.Desktop" Version="11.3.2" />
     <PackageVersion Include="Avalonia.Themes.Fluent" Version="11.3.2" />
+    <PackageVersion Include="ActiproSoftware.Controls.Avalonia.Pro" Version="25.2.0" />
     <PackageVersion Include="BenchmarkDotNet" Version="0.15.8" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageVersion Include="xunit" Version="2.9.2" />

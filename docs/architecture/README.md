@@ -11,6 +11,10 @@
 - [Company context](COMPANY-CONTEXT.md)
 - [Authorization presentation](AUTHORIZATION-PRESENTATION.md)
 - [Company profile](COMPANY-PROFILE.md)
+- [Dynamic Ribbon](DYNAMIC-RIBBON.md)
+- [Ribbon definition](RIBBON-DEFINITION.md)
+- [Ribbon context](RIBBON-CONTEXT.md)
+- [UI command registry](UI-COMMAND-REGISTRY.md)
 
 DynamicUI24 is split into independently maintainable framework modules.
 

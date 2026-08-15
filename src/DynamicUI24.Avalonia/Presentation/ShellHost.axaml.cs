@@ -56,6 +56,13 @@ public sealed partial class ShellHost : UserControl
         set => WorkspacePresenter.Content = value;
     }
 
+    /// <summary>The Ribbon is a separate shell region; the application menu never becomes a Ribbon tab.</summary>
+    public Control? RibbonContent
+    {
+        get => RibbonPresenter.Content as Control;
+        set => RibbonPresenter.Content = value;
+    }
+
     public Control? ApplicationMenuContent
     {
         get => ApplicationMenuPresenter.Content as Control;
