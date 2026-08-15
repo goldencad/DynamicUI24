@@ -4,6 +4,7 @@
 - [Application branding](BRANDING.md)
 - [Company context integration](COMPANY-CONTEXT-INTEGRATION.md)
 - [DataEntry integration](DATAENTRY-INTEGRATION.md)
+- [Large-data Grid integration](LARGE-DATA-GRID-INTEGRATION.md)
 - [Permission and capability mapping](PERMISSION-CAPABILITY-MAPPING.md)
 - [Ribbon integration](RIBBON-INTEGRATION.md)
 - [Ribbon metadata example](RIBBON-METADATA-EXAMPLE.md)

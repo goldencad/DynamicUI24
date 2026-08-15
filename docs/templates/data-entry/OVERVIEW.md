@@ -1,6 +1,6 @@
 # DataEntry Grid Core
 
-Task 10A provides the reusable metadata-driven table runtime used by `DATA_ENTRY` workspaces. The flow is `GridDefinition + Task 9 ColumnDefinition + IDataEntryGridProvider + company/workspace/authorization context → DataEntryGridRuntime → DataEntryGridHost`.
+Tasks 10A/10B provide the reusable metadata-driven table runtime used by `DATA_ENTRY` workspaces. The flow is `GridDefinition + Task 9 ColumnDefinition + IDataEntryGridProvider (optionally IVirtualizedGridDataProvider) + company/workspace/authorization context → DataEntryGridRuntime → DataEntryGridHost`.
 
 ## What Grid Core owns
 
@@ -12,7 +12,7 @@ Task 10A provides the reusable metadata-driven table runtime used by `DATA_ENTRY
 
 ## What it does not own
 
-It does not own application authorization, persistence, business validation/calculation, formula execution, imports/exports, Global Search, Excel range behavior, layout persistence, grouping, pivoting, charting or 100K-row virtualization. Providers remain application composition concerns.
+It does not own application authorization, persistence, business validation/calculation, formula execution, imports/exports, Global Search, Excel range behavior, layout persistence, grouping, pivoting or charting. Providers remain application composition concerns.
 
 ## Public contracts
 
@@ -26,8 +26,8 @@ Add metadata without localized-title binding; add providers without UI types; ad
 
 Duplicate columns/rows, invalid geometry, unknown enum values, missing `VariableCode` values, unavailable authorization and provider exceptions become diagnostics or safe states. Do not surface raw provider exceptions. A company change clears selection/edit state and starts a new generation.
 
-## 10B virtualization extension point
+## 10B virtualization
 
-`GridDataRequest` is the request boundary. Task 10B can add an optional viewport/window descriptor and return window metadata while retaining `GridDefinition`, Task 9 `ColumnDefinition`, `RowKey`, selection and edit contracts. Task 10A deliberately materializes only a modest current row set.
+`GridViewportRequest`, `GridViewportResult`, and `IVirtualizedGridDataProvider` add bounded large-data loading while retaining all 10A contracts. See [virtualization](VIRTUALIZATION.md) and [large-data behavior](LARGE-DATA.md).
 
 Focused commands are documented in [TESTING.md](TESTING.md).

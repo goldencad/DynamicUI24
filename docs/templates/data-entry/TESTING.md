@@ -5,7 +5,9 @@ Run from a shell whose current directory does not select an incompatible SDK if 
 ```sh
 dotnet build samples/DynamicUI24.Demo/DynamicUI24.Demo.csproj --no-restore -m:1
 dotnet test tests/DynamicUI24.Tests/DynamicUI24.Tests.csproj --no-restore --filter 'FullyQualifiedName~DataEntryGridTests' -m:1
+dotnet test tests/DynamicUI24.Tests/DynamicUI24.Tests.csproj --no-restore --filter 'FullyQualifiedName~GridViewportTests' -m:1
 dotnet test tests/DynamicUI24.ArchitectureTests/DynamicUI24.ArchitectureTests.csproj --no-restore --filter 'FullyQualifiedName~DataEntryGridArchitectureTests' -m:1
+dotnet run --project benchmarks/DynamicUI24.Benchmarks/DynamicUI24.Benchmarks.csproj -c Release -- --filter '*GridViewport*'
 dotnet run --project samples/DynamicUI24.Demo/DynamicUI24.Demo.csproj --no-build -- --smoke
 ```
 

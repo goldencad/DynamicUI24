@@ -26,6 +26,10 @@ public sealed class DataEntryGridHost : UserControl
     private EffectiveAuthorizationContext? authorization;
     private GridProviderContext? context;
     private TextBox? activeEditor;
+    private CancellationTokenSource? viewportNavigation;
+    private CancellationTokenSource? viewportResize;
+    private bool scrollRequestPending;
+    private DateTimeOffset scrollRequestsEnabledAt;
 
     public DataEntryGridHost(DataEntryGridRuntime runtime, ILocalizationService localization,
         AppearancePreferenceService? appearance = null)
@@ -40,7 +44,13 @@ public sealed class DataEntryGridHost : UserControl
             Changed?.Invoke(this, EventArgs.Empty);
         });
         localization.CultureChanged += (_, _) => Rebuild();
-        if (appearance is not null) appearance.PreferencesChanged += (_, _) => Rebuild();
+        if (appearance is not null) appearance.PreferencesChanged += (_, _) =>
+        {
+            Rebuild();
+            QueueViewportResize();
+        };
+        scroller.ScrollChanged += (_, _) => QueueNextViewportFromScroll();
+        SizeChanged += (_, _) => QueueViewportResize();
         KeyDown += HandleKeyDown;
         Rebuild();
     }
@@ -54,6 +64,7 @@ public sealed class DataEntryGridHost : UserControl
     public Task LoadAsync(GridProviderContext providerContext, EffectiveAuthorizationContext? effectiveAuthorization,
         CancellationToken cancellationToken = default)
     {
+        CancelViewportResize();
         context = providerContext;
         authorization = effectiveAuthorization;
         return runtime.LoadAsync(providerContext, effectiveAuthorization, cancellationToken);
@@ -88,19 +99,37 @@ public sealed class DataEntryGridHost : UserControl
     }
 
     public void CancelEdit() { runtime.CancelEdit(); Rebuild(); }
-    public Task SortAsync(VariableCode variableCode, GridSortDirection direction, CancellationToken cancellationToken = default) =>
-        runtime.SetSortAsync([new(variableCode, direction)], authorization, cancellationToken);
-    public Task FilterAsync(GridFilterDefinition filter, CancellationToken cancellationToken = default) =>
-        runtime.SetFiltersAsync([filter], authorization, cancellationToken);
-    public Task ClearFilterAsync(CancellationToken cancellationToken = default) =>
-        runtime.SetFiltersAsync([], authorization, cancellationToken);
-    public Task RefreshAsync(CancellationToken cancellationToken = default) => context is null
-        ? Task.CompletedTask : runtime.LoadAsync(context, authorization, cancellationToken);
+    public Task SortAsync(VariableCode variableCode, GridSortDirection direction, CancellationToken cancellationToken = default)
+    {
+        CancelViewportResize(); return runtime.SetSortAsync([new(variableCode, direction)], authorization, cancellationToken);
+    }
+    public Task FilterAsync(GridFilterDefinition filter, CancellationToken cancellationToken = default)
+    {
+        CancelViewportResize(); return runtime.SetFiltersAsync([filter], authorization, cancellationToken);
+    }
+    public Task ClearFilterAsync(CancellationToken cancellationToken = default)
+    {
+        CancelViewportResize(); return runtime.SetFiltersAsync([], authorization, cancellationToken);
+    }
+    public Task RefreshAsync(CancellationToken cancellationToken = default)
+    {
+        CancelViewportResize(); return runtime.RefreshAsync(authorization, cancellationToken);
+    }
+    public Task RequestViewportAsync(int startIndex, CancellationToken cancellationToken = default)
+    {
+        CancelViewportResize();
+        return runtime.RequestViewportAsync(startIndex, runtime.RequestedViewportRowCount > 0
+            ? runtime.RequestedViewportRowCount : runtime.ViewportOptions.VisibleRowCount, cancellationToken);
+    }
+    public Task RetryAsync(CancellationToken cancellationToken = default) => runtime.RetryViewportAsync(cancellationToken);
+    public void Deactivate() => runtime.Deactivate();
 
     private void Rebuild()
     {
         activeEditor = null;
-        if (runtime.State != GridProviderState.Ready)
+        if (scroller.Parent is Panel previousPanel) previousPanel.Children.Remove(scroller);
+        else if (ReferenceEquals(Content, scroller)) Content = null;
+        if (runtime.State != GridProviderState.Ready && runtime.Rows.Length == 0)
         {
             stateText.Text = runtime.State switch
             {
@@ -119,15 +148,23 @@ public sealed class DataEntryGridHost : UserControl
         var scale = appearance?.Current.UiScale ?? 1d;
         var stack = new StackPanel { Spacing = 0 };
         stack.Children.Add(BuildHeader(columns, scale));
-        foreach (var row in runtime.Rows) stack.Children.Add(BuildRow(row, columns, scale));
+        for (var index = 0; index < runtime.Rows.Length; index++)
+            stack.Children.Add(BuildRow(runtime.Rows[index], index, columns, scale));
         scroller.Content = stack;
-        Content = scroller;
+        scroller.Offset = new Vector(scroller.Offset.X, 0);
+        scrollRequestsEnabledAt = DateTimeOffset.UtcNow.AddMilliseconds(250);
+        if (!runtime.IsVirtualized) { Content = scroller; return; }
+        var layout = new DockPanel();
+        var navigation = BuildViewportNavigation(scale);
+        DockPanel.SetDock(navigation, Dock.Top); layout.Children.Add(navigation); layout.Children.Add(scroller);
+        Content = layout;
     }
 
     private Control BuildHeader(IReadOnlyList<ResolvedGridColumn> columns, double scale)
     {
         var grid = CreateColumns(columns, scale);
         grid.MinHeight = 38 * scale;
+        var columnOffset = AddRowNumberHeader(grid, scale);
         for (var index = 0; index < columns.Count; index++)
         {
             var column = columns[index];
@@ -146,19 +183,20 @@ public sealed class DataEntryGridHost : UserControl
                 var direction = current?.Direction == GridSortDirection.Ascending ? GridSortDirection.Descending : GridSortDirection.Ascending;
                 await SortAsync(column.Definition.VariableCode, direction);
             };
-            Grid.SetColumn(button, index); grid.Children.Add(button);
+            Grid.SetColumn(button, index + columnOffset); grid.Children.Add(button);
         }
         return grid;
     }
 
-    private Control BuildRow(GridRow row, IReadOnlyList<ResolvedGridColumn> columns, double scale)
+    private Control BuildRow(GridRow row, int localIndex, IReadOnlyList<ResolvedGridColumn> columns, double scale)
     {
         var rowGrid = CreateColumns(columns, scale);
         rowGrid.MinHeight = DensityHeight(scale);
+        var columnOffset = AddRowNumber(rowGrid, runtime.ViewportStartIndex + localIndex + 1, scale);
         for (var index = 0; index < columns.Count; index++)
         {
             var cell = BuildCell(row, columns[index], scale);
-            Grid.SetColumn(cell, index); rowGrid.Children.Add(cell);
+            Grid.SetColumn(cell, index + columnOffset); rowGrid.Children.Add(cell);
         }
         var border = new Border { Child = rowGrid, BorderThickness = new Thickness(0, 0, 0, 1), Focusable = true,
             Tag = row.RowKey };
@@ -217,9 +255,11 @@ public sealed class DataEntryGridHost : UserControl
         return border;
     }
 
-    private static Grid CreateColumns(IEnumerable<ResolvedGridColumn> columns, double scale)
+    private Grid CreateColumns(IEnumerable<ResolvedGridColumn> columns, double scale)
     {
         var grid = new Grid();
+        if (runtime.Definition.ShowRowNumbers)
+            grid.ColumnDefinitions.Add(new global::Avalonia.Controls.ColumnDefinition(new GridLength(72 * scale, GridUnitType.Pixel)));
         foreach (var column in columns)
             grid.ColumnDefinitions.Add(new global::Avalonia.Controls.ColumnDefinition(new GridLength((double)column.Width * scale, GridUnitType.Pixel))
             {
@@ -227,6 +267,120 @@ public sealed class DataEntryGridHost : UserControl
                 MaxWidth = (double)column.MaxWidth * scale,
             });
         return grid;
+    }
+
+    private int AddRowNumberHeader(Grid grid, double scale)
+    {
+        if (!runtime.Definition.ShowRowNumbers) return 0;
+        var label = new TextBlock { Text = "№", Margin = new Thickness(8 * scale, 4 * scale),
+            VerticalAlignment = VerticalAlignment.Center };
+        grid.Children.Add(label); return 1;
+    }
+
+    private int AddRowNumber(Grid grid, int logicalPosition, double scale)
+    {
+        if (!runtime.Definition.ShowRowNumbers) return 0;
+        var label = new TextBlock { Text = logicalPosition.ToString("N0", CultureInfo.CurrentCulture),
+            Margin = new Thickness(8 * scale, 3 * scale), VerticalAlignment = VerticalAlignment.Center };
+        AutomationProperties.SetName(label, $"{localization.Get(new("Grid.Row"))} {logicalPosition}");
+        grid.Children.Add(label); return 1;
+    }
+
+    private Control BuildViewportNavigation(double scale)
+    {
+        var previous = new Button { Content = "‹", IsEnabled = runtime.HasPreviousViewport, MinWidth = 36 * scale };
+        var next = new Button { Content = "›", IsEnabled = runtime.HasNextViewport, MinWidth = 36 * scale };
+        var retry = new Button { Content = localization.Get(new("Grid.Retry")), IsVisible = runtime.State == GridProviderState.Error };
+        var slider = new Slider { Minimum = 0, Maximum = Math.Max(0, runtime.TotalRows - 1),
+            Value = runtime.RequestedViewportStartIndex, TickFrequency = Math.Max(1, runtime.RequestedViewportRowCount),
+            HorizontalAlignment = HorizontalAlignment.Stretch };
+        var status = new TextBlock
+        {
+            Text = $"{runtime.ViewportStartIndex + 1:N0}–{Math.Min(runtime.TotalRows, runtime.ViewportStartIndex + runtime.Rows.Length):N0} / {runtime.TotalRows:N0}",
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        previous.Click += async (_, _) => await RequestViewportAsync(Math.Max(0,
+            runtime.RequestedViewportStartIndex - runtime.RequestedViewportRowCount));
+        next.Click += async (_, _) => await RequestViewportAsync(Math.Min(Math.Max(0, runtime.TotalRows - 1),
+            runtime.RequestedViewportStartIndex + runtime.RequestedViewportRowCount));
+        retry.Click += async (_, _) => await RetryAsync();
+        slider.ValueChanged += (_, _) =>
+        {
+            QueueSliderViewport((int)Math.Round(slider.Value));
+        };
+        AutomationProperties.SetName(slider, "Logical row position");
+        var panel = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,Auto,*,Auto,Auto"), Margin = new Thickness(0, 0, 0, 4) };
+        Grid.SetColumn(previous, 0); Grid.SetColumn(next, 1); Grid.SetColumn(slider, 2); Grid.SetColumn(status, 3); Grid.SetColumn(retry, 4);
+        panel.Children.Add(previous); panel.Children.Add(next); panel.Children.Add(slider); panel.Children.Add(status); panel.Children.Add(retry);
+        return panel;
+    }
+
+    private void QueueSliderViewport(int startIndex)
+    {
+        viewportNavigation?.Cancel(); viewportNavigation?.Dispose();
+        viewportNavigation = new CancellationTokenSource();
+        var token = viewportNavigation.Token;
+        _ = DebouncedViewportAsync(startIndex, token);
+    }
+
+    private async Task DebouncedViewportAsync(int startIndex, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(120, cancellationToken);
+            await RequestViewportAsync(startIndex, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+    }
+
+    private void QueueNextViewportFromScroll()
+    {
+        if (!IsNearViewportEnd() || scrollRequestPending) return;
+        scrollRequestPending = true;
+        Dispatcher.UIThread.Post(async () =>
+        {
+            try
+            {
+                if (IsNearViewportEnd())
+                    await RequestViewportAsync(runtime.RequestedViewportStartIndex + runtime.RequestedViewportRowCount);
+            }
+            finally { scrollRequestPending = false; }
+        }, DispatcherPriority.Background);
+    }
+
+    private bool IsNearViewportEnd() => DateTimeOffset.UtcNow >= scrollRequestsEnabledAt && runtime.IsVirtualized &&
+        runtime.HasNextViewport && scroller.Viewport.Height > 0 &&
+        scroller.Offset.Y >= scroller.Extent.Height - scroller.Viewport.Height - DensityHeight(appearance?.Current.UiScale ?? 1d);
+
+    private Task ReevaluateViewportAsync(CancellationToken cancellationToken = default)
+    {
+        if (!runtime.IsVirtualized || context is null || Bounds.Height <= 0) return Task.CompletedTask;
+        var scale = appearance?.Current.UiScale ?? 1d;
+        var count = Math.Clamp((int)Math.Ceiling(Bounds.Height / DensityHeight(scale)) + 4, 20,
+            runtime.ViewportOptions.MaximumMaterializedRows - runtime.ViewportOptions.OverscanBefore - runtime.ViewportOptions.OverscanAfter);
+        return count == runtime.RequestedViewportRowCount ? Task.CompletedTask : runtime.ResizeViewportAsync(count, cancellationToken);
+    }
+
+    private void QueueViewportResize()
+    {
+        viewportResize?.Cancel(); viewportResize?.Dispose(); viewportResize = new CancellationTokenSource();
+        var token = viewportResize.Token;
+        _ = DebouncedResizeAsync(token);
+    }
+
+    private void CancelViewportResize()
+    {
+        viewportResize?.Cancel(); viewportResize?.Dispose(); viewportResize = null;
+    }
+
+    private async Task DebouncedResizeAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(180, cancellationToken);
+            await ReevaluateViewportAsync(cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
     }
 
     private double DensityHeight(double scale) => (appearance?.Current.GridDensity ?? GridDensityPreference.Comfortable) switch

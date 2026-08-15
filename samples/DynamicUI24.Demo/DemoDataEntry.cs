@@ -39,35 +39,49 @@ internal static class DemoDataEntry
             visible, required, permission, format, null, null, null, 1, SetupDefinitionStatus.Published);
 }
 
-internal sealed class DemoDataEntryProvider : IDataEntryGridProvider
+internal sealed class DemoDataEntryProvider : IVirtualizedGridDataProvider
 {
+    public const int LogicalRowCount = 100_000;
     private readonly object sync = new();
-    private readonly Dictionary<CompanyId, ImmutableArray<GridRow>> source = new();
+    private readonly Dictionary<(CompanyId CompanyId, RowKey RowKey, VariableCode VariableCode), object?> edits = [];
+    private int generatedRowCount;
+    private int viewportRequestCount;
     public bool SimulateFailure { get; set; }
+    public int GeneratedRowCount => Volatile.Read(ref generatedRowCount);
+    public int ViewportRequestCount => Volatile.Read(ref viewportRequestCount);
 
     public async Task<GridDataResult> LoadAsync(GridProviderContext context, GridDataRequest request,
         CancellationToken cancellationToken = default)
     {
-        await Task.Delay(context.Company.CompanyId == DemoCompanyData.CompanyAId ? 45 : 5, cancellationToken);
+        var viewportRequest = new GridViewportRequest(0, 60, 0, 0, request.Sorts, request.Filters, request.Generation);
+        var result = await LoadViewportAsync(context, viewportRequest, cancellationToken);
+        return new(result.State, result.Rows, result.TotalRowCount, result.TotalRowCount, result.DiagnosticCode);
+    }
+
+    public async Task<GridViewportResult> LoadViewportAsync(GridProviderContext context, GridViewportRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        Interlocked.Increment(ref viewportRequestCount);
+        await Task.Delay(context.Company.CompanyId == DemoCompanyData.CompanyAId ? 35 : 5, cancellationToken);
         if (SimulateFailure) throw new InvalidOperationException("Demo provider failure details must remain isolated.");
-        ImmutableArray<GridRow> rows;
-        lock (sync)
+
+        var descending = request.SortDefinitions.FirstOrDefault()?.Direction == GridSortDirection.Descending;
+        var wantedStart = request.MaterializedStartIndex;
+        var wantedCount = request.MaterializedRowCount;
+        var rows = ImmutableArray.CreateBuilder<GridRow>(wantedCount);
+        var matched = 0;
+        for (var offset = 0; offset < LogicalRowCount; offset++)
         {
-            if (!source.TryGetValue(context.Company.CompanyId, out rows))
-                source[context.Company.CompanyId] = rows = BuildRows(context.Company);
+            cancellationToken.ThrowIfCancellationRequested();
+            var logicalIndex = descending ? LogicalRowCount - offset : offset + 1;
+            if (!Matches(logicalIndex, context.Company, request.FilterDefinitions)) continue;
+            if (matched >= wantedStart && rows.Count < wantedCount) rows.Add(BuildRow(context.Company, logicalIndex));
+            matched++;
         }
-        var query = rows.AsEnumerable();
-        foreach (var filter in request.Filters) query = query.Where(row => Matches(row, filter));
-        IOrderedEnumerable<GridRow>? ordered = null;
-        foreach (var sort in request.Sorts.OrderBy(x => x.Priority))
-        {
-            Func<GridRow, object?> key = row => row.Values.GetValueOrDefault(sort.VariableCode);
-            ordered = ordered is null
-                ? sort.Direction == GridSortDirection.Ascending ? query.OrderBy(key, GridObjectComparer.Instance) : query.OrderByDescending(key, GridObjectComparer.Instance)
-                : sort.Direction == GridSortDirection.Ascending ? ordered.ThenBy(key, GridObjectComparer.Instance) : ordered.ThenByDescending(key, GridObjectComparer.Instance);
-        }
-        var visible = (ordered ?? query).ToImmutableArray();
-        return new(visible.Length == 0 ? GridProviderState.Empty : GridProviderState.Ready, visible, rows.Length, visible.Length);
+        Interlocked.Add(ref generatedRowCount, rows.Count);
+        return new(rows.Count == 0 ? GridProviderState.Empty : GridProviderState.Ready, wantedStart, rows.ToImmutable(),
+            matched, request.RequestGeneration, wantedStart > 0, wantedStart + rows.Count < matched,
+            $"generated={rows.Count}");
     }
 
     public Task<GridCommitResult> CommitAsync(GridProviderContext context, GridCellEdit edit,
@@ -76,40 +90,57 @@ internal sealed class DemoDataEntryProvider : IDataEntryGridProvider
         cancellationToken.ThrowIfCancellationRequested();
         lock (sync)
         {
-            if (!source.TryGetValue(context.Company.CompanyId, out var rows))
+            var separator = edit.RowKey.Value.LastIndexOf(':');
+            if (separator < 0 || !int.TryParse(edit.RowKey.Value[(separator + 1)..], out var logicalIndex) ||
+                logicalIndex is < 1 or > LogicalRowCount)
                 return Task.FromResult(GridCommitResult.Rejected("GRID_ROW_UNAVAILABLE"));
-            var index = -1;
-            for (var candidateIndex = 0; candidateIndex < rows.Length; candidateIndex++)
-                if (rows[candidateIndex].RowKey == edit.RowKey) { index = candidateIndex; break; }
-            if (index < 0) return Task.FromResult(GridCommitResult.Rejected("GRID_ROW_UNAVAILABLE"));
-            var current = rows[index].Values.GetValueOrDefault(edit.VariableCode);
+            var current = BuildRow(context.Company, logicalIndex).Values.GetValueOrDefault(edit.VariableCode);
             var value = ConvertCandidate(edit.CandidateValue, current);
-            source[context.Company.CompanyId] = rows.SetItem(index, rows[index].WithValue(edit.VariableCode, value));
+            edits[(context.Company.CompanyId, edit.RowKey, edit.VariableCode)] = value;
             return Task.FromResult(GridCommitResult.Success(value));
         }
     }
 
-    private static ImmutableArray<GridRow> BuildRows(CompanyDescriptor company) => Enumerable.Range(1, 30)
-        .Select(index =>
-        {
-            var quantity = index * 2;
-            var rate = 7.25m + index / 4m;
-            var prefix = company.Code;
-            IReadOnlyDictionary<VariableCode, object?> values = new Dictionary<VariableCode, object?>
-            {
-                [new("ITEM_CODE")] = $"{prefix}-{index:000}", [new("ITEM_NAME")] = $"Sample item {index:00}",
-                [new("CATEGORY")] = index % 3 == 0 ? "EXTENDED" : "STANDARD", [new("QUANTITY")] = quantity,
-                [new("UNIT_RATE")] = rate, [new("IS_ACTIVE")] = index % 4 != 0,
-                [new("START_DATE")] = new DateOnly(2026, 1, 1).AddDays(index), [new("NOTES")] = index % 5 == 0 ? "Review this neutral sample" : null,
-                [new("TOTAL")] = quantity * rate, [new("UPDATED_AT")] = new DateTime(2026, 8, 1, 9, 0, 0, DateTimeKind.Local).AddMinutes(index),
-                [new("REFERENCE")] = $"REF-{1000 + index}", [new("PRIVILEGED_NOTE")] = "hidden value",
-            };
-            return new GridRow(new($"{company.CompanyId.Value}:ROW:{index:000}"), values, warningCount: index == 7 ? 1 : 0);
-        }).ToImmutableArray();
-
-    private static bool Matches(GridRow row, GridFilterDefinition filter)
+    private GridRow BuildRow(CompanyDescriptor company, int index)
     {
-        row.Values.TryGetValue(filter.VariableCode, out var cell);
+        var quantity = index * 2;
+        var rate = 7.25m + index / 4m;
+        var prefix = company.Code;
+        var rowKey = new RowKey($"{company.CompanyId.Value}:ROW:{index:000000}");
+        var values = new Dictionary<VariableCode, object?>
+        {
+            [new("ITEM_CODE")] = $"{prefix}-{index:000000}", [new("ITEM_NAME")] = $"Sample item {index:000000}",
+            [new("CATEGORY")] = index % 3 == 0 ? "EXTENDED" : "STANDARD", [new("QUANTITY")] = quantity,
+            [new("UNIT_RATE")] = rate, [new("IS_ACTIVE")] = index % 4 != 0,
+            [new("START_DATE")] = new DateOnly(2026, 1, 1).AddDays(index % 3650),
+            [new("NOTES")] = index % 5 == 0 ? "Review this neutral sample" : null,
+            [new("TOTAL")] = quantity * rate,
+            [new("UPDATED_AT")] = new DateTime(2026, 8, 1, 9, 0, 0, DateTimeKind.Local).AddMinutes(index % 525600),
+            [new("REFERENCE")] = $"REF-{1000000 + index}", [new("PRIVILEGED_NOTE")] = "hidden value",
+        };
+        lock (sync)
+            foreach (var edit in edits.Where(x => x.Key.CompanyId == company.CompanyId && x.Key.RowKey == rowKey))
+                values[edit.Key.VariableCode] = edit.Value;
+        return new GridRow(rowKey, values, warningCount: index % 997 == 0 ? 1 : 0);
+    }
+
+    private static bool Matches(int index, CompanyDescriptor company, IEnumerable<GridFilterDefinition> filters)
+    {
+        foreach (var filter in filters)
+        {
+            object? value = filter.VariableCode.Value switch
+            {
+                "ITEM_CODE" => $"{company.Code}-{index:000000}", "ITEM_NAME" => $"Sample item {index:000000}",
+                "CATEGORY" => index % 3 == 0 ? "EXTENDED" : "STANDARD", "QUANTITY" => index * 2,
+                "UNIT_RATE" => 7.25m + index / 4m, "IS_ACTIVE" => index % 4 != 0, _ => null,
+            };
+            if (!Matches(value, filter)) return false;
+        }
+        return true;
+    }
+
+    private static bool Matches(object? cell, GridFilterDefinition filter)
+    {
         var left = cell?.ToString() ?? string.Empty;
         var right = filter.Value?.ToString() ?? string.Empty;
         return filter.Operator switch

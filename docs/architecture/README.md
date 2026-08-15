@@ -7,6 +7,8 @@
 - [Localization](LOCALIZATION.md)
 - [DataEntry Grid](DATAENTRY-GRID.md)
 - [Grid data-provider boundary](GRID-DATA-PROVIDER.md)
+- [Grid viewport provider](GRID-VIEWPORT-PROVIDER.md)
+- [Grid window cache](GRID-WINDOW-CACHE.md)
 - [Application Menu](APPLICATION-MENU.md)
 - [Application Menu contributors](APPLICATION-MENU-CONTRIBUTORS.md)
 - [Application shell](APP-SHELL.md)

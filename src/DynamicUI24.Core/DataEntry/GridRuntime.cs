@@ -22,19 +22,28 @@ public sealed class GridRuntimeChangedEventArgs(string reason) : EventArgs
 public sealed class DataEntryGridRuntime
 {
     private readonly IDataEntryGridProvider provider;
+    private readonly IVirtualizedGridDataProvider? viewportProvider;
+    private readonly GridWindowCache windowCache;
+    private CancellationTokenSource? activeRequest;
     private long generation;
     private GridProviderContext? context;
 
-    public DataEntryGridRuntime(GridDefinition definition, IDataEntryGridProvider provider)
+    public DataEntryGridRuntime(GridDefinition definition, IDataEntryGridProvider provider,
+        GridViewportOptions? viewportOptions = null)
     {
         Definition = definition ?? throw new ArgumentNullException(nameof(definition));
         this.provider = provider ?? throw new ArgumentNullException(nameof(provider));
+        viewportProvider = provider as IVirtualizedGridDataProvider;
+        ViewportOptions = viewportOptions ?? new();
+        windowCache = new(ViewportOptions.MaximumCachedWindows);
         Sorts = definition.DefaultSort;
         Filters = definition.DefaultFilter;
         ResolvedDefinition = GridMetadataResolver.Resolve(definition, null);
     }
 
     public GridDefinition Definition { get; }
+    public GridViewportOptions ViewportOptions { get; }
+    public bool IsVirtualized => viewportProvider is not null;
     public ResolvedGridDefinition ResolvedDefinition { get; private set; }
     public GridProviderState State { get; private set; } = GridProviderState.Loading;
     public ImmutableArray<GridRow> Rows { get; private set; } = [];
@@ -44,6 +53,14 @@ public sealed class DataEntryGridRuntime
     public GridEditBuffer? EditBuffer { get; private set; }
     public int TotalRows { get; private set; }
     public int VisibleRows { get; private set; }
+    public int ViewportStartIndex { get; private set; }
+    public int RequestedViewportStartIndex { get; private set; }
+    public int RequestedViewportRowCount { get; private set; }
+    public bool HasPreviousViewport { get; private set; }
+    public bool HasNextViewport { get; private set; }
+    public int CachedWindowCount => windowCache.WindowCount;
+    public int CachedRowCount => windowCache.RowCount;
+    public long Generation => Volatile.Read(ref generation);
     public string? DiagnosticCode { get; private set; }
     public int SelectionCount => SelectedRowKeys.Count;
     public int ErrorCount => Rows.Sum(x => x.ErrorCount) + (EditBuffer?.Diagnostic is null ? 0 : 1);
@@ -58,16 +75,28 @@ public sealed class DataEntryGridRuntime
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(newContext);
-        var requestGeneration = Interlocked.Increment(ref generation);
         var contextChanged = context is null || context.Company.CompanyId != newContext.Company.CompanyId ||
             !context.WorkspaceId.Equals(newContext.WorkspaceId, StringComparison.OrdinalIgnoreCase);
         context = newContext;
-        if (contextChanged) { SelectedRowKeys = []; EditBuffer = null; }
+        if (contextChanged)
+        {
+            SelectedRowKeys = []; EditBuffer = null; Rows = []; TotalRows = 0; VisibleRows = 0;
+            ViewportStartIndex = 0; RequestedViewportStartIndex = 0; windowCache.Clear();
+        }
         ResolvedDefinition = GridMetadataResolver.Resolve(Definition, authorization);
+        if (viewportProvider is not null)
+        {
+            await RequestViewportAsync(contextChanged ? 0 : RequestedViewportStartIndex,
+                RequestedViewportRowCount > 0 ? RequestedViewportRowCount : ViewportOptions.VisibleRowCount,
+                cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        var (requestGeneration, requestToken) = BeginRequest(cancellationToken);
         State = GridProviderState.Loading; DiagnosticCode = null; OnChanged("LOADING");
         try
         {
-            var result = await provider.LoadAsync(newContext, new(Sorts, Filters, requestGeneration), cancellationToken)
+            var result = await provider.LoadAsync(newContext, new(Sorts, Filters, requestGeneration), requestToken)
                 .ConfigureAwait(false);
             if (requestGeneration != Volatile.Read(ref generation)) return;
             if (result.Rows.GroupBy(x => x.RowKey).Any(x => x.Count() > 1))
@@ -79,8 +108,78 @@ public sealed class DataEntryGridRuntime
             SelectedRowKeys = SelectedRowKeys.Intersect(Rows.Select(x => x.RowKey)).ToImmutableHashSet();
             OnChanged("LOADED");
         }
+        catch (OperationCanceledException) when (requestGeneration != Volatile.Read(ref generation)) { }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch { if (requestGeneration == Volatile.Read(ref generation)) ApplyFailure(GridProviderState.Error, "GRID_PROVIDER_FAILED"); }
+    }
+
+    public async Task RequestViewportAsync(int startIndex, int requestedRowCount,
+        CancellationToken cancellationToken = default)
+    {
+        if (viewportProvider is null) throw new InvalidOperationException("GRID_PROVIDER_NOT_VIRTUALIZED");
+        if (context is null) throw new InvalidOperationException("GRID_CONTEXT_UNAVAILABLE");
+        ArgumentOutOfRangeException.ThrowIfNegative(startIndex);
+        if (requestedRowCount <= 0 ||
+            (long)requestedRowCount + ViewportOptions.OverscanBefore + ViewportOptions.OverscanAfter > ViewportOptions.MaximumMaterializedRows)
+            throw new ArgumentOutOfRangeException(nameof(requestedRowCount));
+
+        var boundedStart = TotalRows > 0 ? Math.Min(startIndex, Math.Max(0, TotalRows - 1)) : startIndex;
+        RequestedViewportStartIndex = boundedStart;
+        RequestedViewportRowCount = requestedRowCount;
+        var key = new GridWindowKey(boundedStart, requestedRowCount);
+        var (requestGeneration, requestToken) = BeginRequest(cancellationToken);
+        if (windowCache.TryGet(key, out var cached))
+        {
+            ApplyViewport(cached with { RequestGeneration = requestGeneration }, key, requestGeneration);
+            return;
+        }
+
+        var request = new GridViewportRequest(boundedStart, requestedRowCount,
+            ViewportOptions.OverscanBefore, ViewportOptions.OverscanAfter, Sorts, Filters, requestGeneration);
+        var initialLoad = Rows.Length == 0;
+        if (initialLoad) State = GridProviderState.Loading;
+        DiagnosticCode = null; OnChanged(initialLoad ? "VIEWPORT_LOADING" : "VIEWPORT_FETCHING");
+        try
+        {
+            var result = await viewportProvider.LoadViewportAsync(context, request, requestToken).ConfigureAwait(false);
+            if (requestGeneration != Volatile.Read(ref generation)) return;
+            if (result.RequestGeneration != requestGeneration) { ApplyViewportFailure("GRID_VIEWPORT_GENERATION_INVALID"); return; }
+            if (result.State is GridProviderState.Error or GridProviderState.Unavailable)
+            {
+                State = result.State; DiagnosticCode = result.DiagnosticCode ?? "GRID_VIEWPORT_FAILED";
+                OnChanged("VIEWPORT_FAILURE"); return;
+            }
+            if (!IsValid(result, request)) { ApplyViewportFailure("GRID_VIEWPORT_RESULT_MALFORMED"); return; }
+            windowCache.Set(key, result);
+            ApplyViewport(result, key, requestGeneration);
+        }
+        catch (OperationCanceledException) when (requestGeneration != Volatile.Read(ref generation)) { }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch { if (requestGeneration == Volatile.Read(ref generation)) ApplyViewportFailure("GRID_PROVIDER_FAILED"); }
+    }
+
+    public Task RetryViewportAsync(CancellationToken cancellationToken = default) => viewportProvider is null
+        ? context is null ? Task.CompletedTask : LoadAsync(context, null, cancellationToken)
+        : RequestViewportAsync(RequestedViewportStartIndex,
+            RequestedViewportRowCount > 0 ? RequestedViewportRowCount : ViewportOptions.VisibleRowCount, cancellationToken);
+
+    public Task RefreshAsync(EffectiveAuthorizationContext? authorization = null,
+        CancellationToken cancellationToken = default)
+    {
+        windowCache.Clear();
+        return context is null ? Task.CompletedTask : LoadAsync(context, authorization, cancellationToken);
+    }
+
+    public Task ResizeViewportAsync(int visibleRowCount, CancellationToken cancellationToken = default) =>
+        RequestViewportAsync(RequestedViewportStartIndex, Math.Min(visibleRowCount,
+            ViewportOptions.MaximumMaterializedRows - ViewportOptions.OverscanBefore - ViewportOptions.OverscanAfter), cancellationToken);
+
+    public void Deactivate()
+    {
+        Interlocked.Increment(ref generation);
+        activeRequest?.Cancel(); activeRequest?.Dispose(); activeRequest = null;
+        windowCache.Clear(); Rows = []; TotalRows = 0; VisibleRows = 0; State = GridProviderState.Unavailable;
+        HasPreviousViewport = false; HasNextViewport = false; OnChanged("DEACTIVATED");
     }
 
     public void UpdateAuthorization(EffectiveAuthorizationContext? authorization)
@@ -142,6 +241,7 @@ public sealed class DataEntryGridRuntime
         catch { result = GridCommitResult.Rejected("GRID_PROVIDER_COMMIT_FAILED"); }
         if (!result.IsSuccess) return result;
         Rows = Rows.Select(x => x.RowKey == buffer.RowKey ? x.WithValue(buffer.VariableCode, result.CommittedValue) : x).ToImmutableArray();
+        windowCache.UpdateCell(buffer.RowKey, buffer.VariableCode, result.CommittedValue);
         EditBuffer = null; OnChanged("EDIT_COMMIT"); return result;
     }
 
@@ -151,6 +251,7 @@ public sealed class DataEntryGridRuntime
         CancellationToken cancellationToken = default)
     {
         Sorts = sorts.OrderBy(x => x.Priority).ToImmutableArray();
+        windowCache.Clear(); RequestedViewportStartIndex = 0;
         if (context is not null) await LoadAsync(context, authorization, cancellationToken).ConfigureAwait(false);
     }
 
@@ -158,6 +259,7 @@ public sealed class DataEntryGridRuntime
         CancellationToken cancellationToken = default)
     {
         Filters = filters.ToImmutableArray();
+        windowCache.Clear(); RequestedViewportStartIndex = 0;
         if (context is not null) await LoadAsync(context, authorization, cancellationToken).ConfigureAwait(false);
     }
 
@@ -176,6 +278,41 @@ public sealed class DataEntryGridRuntime
     {
         State = state; Rows = []; TotalRows = 0; VisibleRows = 0; SelectedRowKeys = []; EditBuffer = null;
         DiagnosticCode = code; OnChanged("FAILURE");
+    }
+
+    private (long Generation, CancellationToken Token) BeginRequest(CancellationToken cancellationToken)
+    {
+        var requestGeneration = Interlocked.Increment(ref generation);
+        activeRequest?.Cancel(); activeRequest?.Dispose();
+        activeRequest = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        return (requestGeneration, activeRequest.Token);
+    }
+
+    private static bool IsValid(GridViewportResult result, GridViewportRequest request) =>
+        !result.Rows.IsDefault && result.State is GridProviderState.Ready or GridProviderState.Empty &&
+        (result.State == GridProviderState.Empty) == (result.Rows.Length == 0) &&
+        result.StartIndex == request.MaterializedStartIndex && result.TotalRowCount >= 0 &&
+        result.StartIndex <= result.TotalRowCount && result.Rows.Length <= request.MaterializedRowCount &&
+        (long)result.StartIndex + result.Rows.Length <= result.TotalRowCount &&
+        result.HasPrevious == (result.StartIndex > 0) &&
+        result.HasNext == (result.StartIndex + result.Rows.Length < result.TotalRowCount) &&
+        !result.Rows.GroupBy(x => x.RowKey).Any(x => x.Count() > 1);
+
+    private void ApplyViewport(GridViewportResult result, GridWindowKey key, long requestGeneration)
+    {
+        if (requestGeneration != Volatile.Read(ref generation)) return;
+        Rows = result.Rows; ViewportStartIndex = result.StartIndex;
+        TotalRows = result.TotalRowCount; VisibleRows = result.TotalRowCount;
+        HasPreviousViewport = result.HasPrevious; HasNextViewport = result.HasNext;
+        State = result.Rows.Length == 0 ? GridProviderState.Empty : GridProviderState.Ready;
+        DiagnosticCode = result.DiagnosticCode;
+        RequestedViewportStartIndex = key.StartIndex; RequestedViewportRowCount = key.RequestedRowCount;
+        OnChanged("VIEWPORT_LOADED");
+    }
+
+    private void ApplyViewportFailure(string code)
+    {
+        State = GridProviderState.Error; DiagnosticCode = code; OnChanged("VIEWPORT_FAILURE");
     }
     private void OnChanged(string reason) => Changed?.Invoke(this, new(reason));
 }

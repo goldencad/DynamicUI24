@@ -4,12 +4,12 @@ The DataEntry Grid is split into a UI-platform-free runtime and a presentation a
 
 ```text
 GridDefinition + Task 9 ColumnDefinition
-                 + IDataEntryGridProvider
+                 + IDataEntryGridProvider / optional viewport capability
                  + Company/Workspace/Authorization
                               |
                     DataEntryGridRuntime
-          metadata · rows · selection · edit buffer
-                    sort/filter · status
+          metadata · bounded rows · logical count · selection
+          edit buffer · sort/filter · generation · cache · status
                               |
                       DataEntryGridHost
 ```
@@ -20,4 +20,4 @@ The grid has no implementation dependency on Tree or Ribbon. Workspace navigatio
 
 Authorization presentation resolves grid and column requirements and fails closed. It never replaces provider/backend authorization. A context generation ensures stale company results are ignored and context changes clear selection/edit state.
 
-Explicit non-goals are virtualization, paging, persistent layout, copy/paste ranges, fill, formula calculation, import/export, grouping/pivot/chart/report design and application business semantics.
+Task 10B adds bounded viewport paging; its detailed boundaries are in [Grid viewport provider](GRID-VIEWPORT-PROVIDER.md) and [Grid window cache](GRID-WINDOW-CACHE.md). Explicit non-goals remain persistent layout, copy/paste ranges, fill, formula calculation, import/export, grouping/pivot/chart/report design and application business semantics.

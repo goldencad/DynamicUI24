@@ -29,13 +29,42 @@ public sealed class DataEntryGridArchitectureTests
     }
 
     [Fact]
-    public void ProviderIsAsyncReadyAndContainsVirtualizationSeamWithoutImplementation()
+    public void ProvidersExposeOptionalAsyncViewportCapabilityWithoutBreakingSmallDataContract()
     {
-        var source = File.ReadAllText(Path("src/DynamicUI24.Core/DataEntry/GridProvider.cs"));
-        Assert.Contains("Task<GridDataResult> LoadAsync", source, StringComparison.Ordinal);
-        Assert.Contains("CancellationToken", source, StringComparison.Ordinal);
-        Assert.Contains("10B can add a viewport", source, StringComparison.Ordinal);
-        Assert.DoesNotContain("ViewportRequest", source, StringComparison.Ordinal);
+        var provider = File.ReadAllText(Path("src/DynamicUI24.Core/DataEntry/GridProvider.cs"));
+        var viewport = File.ReadAllText(Path("src/DynamicUI24.Core/DataEntry/GridViewport.cs"));
+        Assert.Contains("Task<GridDataResult> LoadAsync", provider, StringComparison.Ordinal);
+        Assert.Contains("IVirtualizedGridDataProvider : IDataEntryGridProvider", provider, StringComparison.Ordinal);
+        Assert.Contains("Task<GridViewportResult> LoadViewportAsync", provider, StringComparison.Ordinal);
+        Assert.Contains("GridViewportRequest", viewport, StringComparison.Ordinal);
+        Assert.Contains("GridViewportResult", viewport, StringComparison.Ordinal);
+        Assert.Contains("CancellationToken", provider, StringComparison.Ordinal);
+        Assert.DoesNotContain("Avalonia", viewport, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void WindowRuntimeUsesBoundedCacheGenerationAndRowKeyIdentity()
+    {
+        var viewport = File.ReadAllText(Path("src/DynamicUI24.Core/DataEntry/GridViewport.cs"));
+        var runtime = File.ReadAllText(Path("src/DynamicUI24.Core/DataEntry/GridRuntime.cs"));
+        Assert.Contains("MaximumCachedWindows", viewport, StringComparison.Ordinal);
+        Assert.Contains("MaximumMaterializedRows", viewport, StringComparison.Ordinal);
+        Assert.Contains("GridWindowCache", runtime, StringComparison.Ordinal);
+        Assert.Contains("RequestGeneration", runtime, StringComparison.Ordinal);
+        Assert.Contains("SelectedRowKeys", runtime, StringComparison.Ordinal);
+        Assert.Contains("GridEditBuffer", runtime, StringComparison.Ordinal);
+        Assert.DoesNotContain("SelectedIndexes", runtime, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void LargeDataDemoGeneratesOnlyRequestedRowsAndContainsNoApplicationBusinessIntegration()
+    {
+        var source = File.ReadAllText(Path("samples/DynamicUI24.Demo/DemoDataEntry.cs"));
+        Assert.Contains("LogicalRowCount = 100_000", source, StringComparison.Ordinal);
+        Assert.Contains("request.MaterializedRowCount", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Enumerable.Range(1, 100_000)", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("PayCalc24", source, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Odoo", source, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

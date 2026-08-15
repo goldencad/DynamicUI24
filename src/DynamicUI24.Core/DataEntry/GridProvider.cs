@@ -37,7 +37,7 @@ public sealed record GridRow
     public GridRow WithValue(VariableCode variableCode, object? value) => this with { Values = Values.SetItem(variableCode, value) };
 }
 
-/// <summary>Request is intentionally extensible; 10B can add a viewport without changing grid metadata.</summary>
+/// <summary>Small-data request retained for providers that can safely return their complete current result.</summary>
 public sealed record GridDataRequest(ImmutableArray<GridSortDefinition> Sorts, ImmutableArray<GridFilterDefinition> Filters,
     long Generation = 0)
 {
@@ -72,5 +72,14 @@ public interface IDataEntryGridProvider
     Task<GridDataResult> LoadAsync(GridProviderContext context, GridDataRequest request,
         CancellationToken cancellationToken = default);
     Task<GridCommitResult> CommitAsync(GridProviderContext context, GridCellEdit edit,
+        CancellationToken cancellationToken = default);
+}
+
+/// <summary>
+/// Optional large-data capability. Providers resolve only the requested presentation window and never expose UI objects.
+/// </summary>
+public interface IVirtualizedGridDataProvider : IDataEntryGridProvider
+{
+    Task<GridViewportResult> LoadViewportAsync(GridProviderContext context, GridViewportRequest request,
         CancellationToken cancellationToken = default);
 }

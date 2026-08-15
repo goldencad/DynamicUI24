@@ -445,6 +445,8 @@ public sealed partial class MainWindow : Window
         }
 
         var definition = workspaces[index];
+        if (workspaceHost.CurrentDefinition?.WorkspaceId == "data-entry-demo" && definition.WorkspaceId != "data-entry-demo")
+            dataEntryGridHost.Deactivate();
         var result = workspaceHost.ShowWorkspace(definition);
         shellPresentation.CurrentWorkspaceId = definition.WorkspaceId;
         shellPresentation.CurrentWorkspaceTitle = definition.DisplayName;
@@ -936,7 +938,11 @@ public sealed partial class MainWindow : Window
             dataEntryGridHost.RenderedRowCount < 20 || runtime.ResolvedDefinition.Columns.Any(x =>
                 x.Definition.VariableCode == new VariableCode("PRIVILEGED_NOTE") && x.IsVisible))
             throw new InvalidOperationException("Dynamic DataEntry columns, rows, or permission-hidden values failed.");
+        if (!runtime.IsVirtualized || runtime.TotalRows != DemoDataEntryProvider.LogicalRowCount ||
+            runtime.Rows.Length > runtime.ViewportOptions.MaximumMaterializedRows)
+            throw new InvalidOperationException("100K logical count or bounded initial viewport failed.");
         Console.WriteLine($"SMOKE GRID_RENDER: PASS COLUMNS={dataEntryGridHost.RenderedColumnCount} ROWS={dataEntryGridHost.RenderedRowCount}");
+        Console.WriteLine($"SMOKE GRID_100K_INITIAL: TOTAL={runtime.TotalRows} MATERIALIZED={runtime.Rows.Length} PASS");
 
         var first = runtime.Rows[0]; var second = runtime.Rows[1];
         runtime.Select([first.RowKey]); RefreshActionBars();
@@ -960,12 +966,26 @@ public sealed partial class MainWindow : Window
             throw new InvalidOperationException("Cancel or formula/system read-only behavior failed.");
         Console.WriteLine("SMOKE GRID_EDIT: INPUT_INVALID_COMMIT_CANCEL FORMULA_SYSTEM_READONLY PASS");
 
+        runtime.Select([first.RowKey]);
+        dataEntryGridHost.BeginEdit(first.RowKey, name); dataEntryGridHost.SetCandidate("Viewport draft");
+        await dataEntryGridHost.RequestViewportAsync(90_000);
+        if (!runtime.SelectedRowKeys.Contains(first.RowKey) || runtime.EditBuffer?.CandidateValue?.ToString() != "Viewport draft" ||
+            runtime.RequestedViewportStartIndex != 90_000 || runtime.Rows.Length > runtime.ViewportOptions.MaximumMaterializedRows)
+            throw new InvalidOperationException($"Far jump failed: selected={runtime.SelectedRowKeys.Contains(first.RowKey)} " +
+                $"edit={runtime.EditBuffer?.CandidateValue} start={runtime.RequestedViewportStartIndex} rows={runtime.Rows.Length}.");
+        await dataEntryGridHost.RequestViewportAsync(0);
+        if (!runtime.Rows.Any(x => x.RowKey == first.RowKey) || runtime.CachedWindowCount > runtime.ViewportOptions.MaximumCachedWindows)
+            throw new InvalidOperationException("Return navigation or bounded cache failed.");
+        dataEntryGridHost.CancelEdit();
+        Console.WriteLine($"SMOKE GRID_FAR_JUMP_EDIT_CACHE: ROW=90001 MATERIALIZED={runtime.Rows.Length} CACHE={runtime.CachedWindowCount} PASS");
+
         var selectedKey = first.RowKey; runtime.Select([selectedKey]);
         await dataEntryGridHost.SortAsync(new("ITEM_CODE"), GridSortDirection.Descending);
+        await Task.Delay(220);
         if (!runtime.SelectedRowKeys.Contains(selectedKey) || runtime.Rows[0].RowKey == selectedKey)
             throw new InvalidOperationException("Sort did not preserve RowKey selection.");
         await dataEntryGridHost.FilterAsync(new(new("ITEM_CODE"), GridFilterOperator.Contains, "-00"));
-        if (runtime.VisibleRows is <= 0 or >= 30 || !runtime.SelectedRowKeys.Contains(selectedKey))
+        if (runtime.VisibleRows is <= 0 or >= DemoDataEntryProvider.LogicalRowCount || !runtime.SelectedRowKeys.Contains(selectedKey))
             throw new InvalidOperationException("Filter/count/selection behavior failed.");
         await dataEntryGridHost.ClearFilterAsync();
         Console.WriteLine("SMOKE GRID_SORT_FILTER_STATUS: ASC_DESC_CONTAINS_CLEAR PASS");
@@ -975,10 +995,13 @@ public sealed partial class MainWindow : Window
         if (!runtime.SelectedRowKeys.Contains(selectedKey)) throw new InvalidOperationException("Presentation changes lost grid selection.");
         Console.WriteLine("SMOKE GRID_LOCALIZATION_THEME_KEYBOARD_ACCESSIBILITY: VI_EN_SYSTEM_LIGHT_DARK PASS");
 
+        var requestsBeforeRefresh = dataEntryProvider.ViewportRequestCount;
         dataEntryProvider.SimulateFailure = true; await dataEntryGridHost.RefreshAsync();
         if (runtime.State != GridProviderState.Error || runtime.DiagnosticCode != "GRID_PROVIDER_FAILED")
             throw new InvalidOperationException("Provider failure was not isolated.");
         dataEntryProvider.SimulateFailure = false; await dataEntryGridHost.RefreshAsync();
+        if (dataEntryProvider.ViewportRequestCount != requestsBeforeRefresh + 2 || runtime.Rows.Length > runtime.ViewportOptions.MaximumMaterializedRows)
+            throw new InvalidOperationException("Refresh did not remain scoped to the current viewport.");
         Console.WriteLine("SMOKE GRID_PROVIDER_ERROR: SAFE_FAILURE_RECOVERY PASS");
 
         var companyA = companyContext.AvailableCompanies.Single(x => x.CompanyId == DemoCompanyData.CompanyAId);
