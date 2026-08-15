@@ -93,8 +93,9 @@ public sealed partial class MainWindow : Window
         shellPresentation = new ShellPresentation(
             new ApplicationBrand("Framework Demo", DemoLogoKey, "#7C3AED"));
         workspaceHost = new DynamicUI24.Avalonia.DynamicWorkspaceHost(composition.Registry, localization);
-        setupWorkspaceHost = new SetupWorkspaceHost(DemoSetup.Categories, new DemoSetupProvider(),
-            new DemoSetupValidator(), DemoSetup.CreateEditors(), localization, iconRegistry,
+        var setupProvider = new DemoSetupProvider();
+        setupWorkspaceHost = new SetupWorkspaceHost(DemoSetup.Categories, setupProvider,
+            new SpecializedSetupValidator(setupProvider, composition.Registry), DemoSetup.CreateEditors(composition.Registry, setupProvider), localization, iconRegistry,
             companyContext.CurrentCompany, appearance: appearanceService);
         workspaceHost.RegisterViewFactory(StandardTemplateCodes.Setup, _ => setupWorkspaceHost);
         workspaceNavigation = new WorkspaceNavigationService(workspaces);
@@ -856,19 +857,19 @@ public sealed partial class MainWindow : Window
         if (workspaceHost.Content != setupWorkspaceHost ||
             !new[] { "GENERAL", "MASTER_CATALOGS", "WORKSPACES", "COLUMNS_VARIABLES", "NAVIGATION_TREE", "RIBBON", "ACTION_BARS", "DASHBOARD", "REPORTS" }
                 .All(setupWorkspaceHost.VisibleCategoryCodes.Contains) ||
-            setupWorkspaceHost.VisibleCategoryCodes.Count(x => x.StartsWith("CATALOG_", StringComparison.Ordinal)) < 9)
-            throw new InvalidOperationException("Setup tree or standard/catalog categories were not rendered.");
-        Console.WriteLine("SMOKE SETUP_TREE: PASS CATALOGS=" + setupWorkspaceHost.VisibleCategoryCodes.Count(x => x.StartsWith("CATALOG_", StringComparison.Ordinal)));
+            !new[] { "COLUMNS", "VARIABLES", "FORMULAS" }.All(setupWorkspaceHost.VisibleCategoryCodes.Contains))
+            throw new InvalidOperationException("Setup tree or specialized categories were not rendered.");
+        Console.WriteLine("SMOKE SETUP_TREE: PASS FIVE_SPECIALIZED_EDITORS");
 
-        var initialCatalogWindow = setupWorkspaceHost.GetCategoryChildWindow("catalogs");
-        if (!setupWorkspaceHost.SetCategoryExpanded("catalogs", true) || initialCatalogWindow.VisibleCount != 5 ||
+        var initialCatalogWindow = setupWorkspaceHost.GetCategoryChildWindow(null);
+        if (initialCatalogWindow.VisibleCount != 5 ||
             !initialCatalogWindow.CanShowMore || initialCatalogWindow.CanShowLess ||
-            !setupWorkspaceHost.ShowMoreCategories("catalogs"))
+            !setupWorkspaceHost.ShowMoreCategories(null))
             throw new InvalidOperationException("Setup shared Tree initial overflow window failed.");
-        var expandedCatalogWindow = setupWorkspaceHost.GetCategoryChildWindow("catalogs");
+        var expandedCatalogWindow = setupWorkspaceHost.GetCategoryChildWindow(null);
         await companyScope.SwitchCompanyAsync(DemoCompanyData.CompanyBId);
         setupWorkspaceHost.UpdateContext(companyScope.Snapshot.Company, companyScope.Snapshot.AuthorizationContext);
-        if (setupWorkspaceHost.GetCategoryChildWindow("catalogs").VisibleCount != 10)
+        if (setupWorkspaceHost.GetCategoryChildWindow(null).VisibleCount != 9)
             throw new InvalidOperationException("Setup Tree overflow state was lost on Company change.");
         await companyScope.SwitchCompanyAsync(DemoCompanyData.CompanyAId);
         setupWorkspaceHost.UpdateContext(companyScope.Snapshot.Company, companyScope.Snapshot.AuthorizationContext);
@@ -876,12 +877,11 @@ public sealed partial class MainWindow : Window
         themeSelector.SelectedItem = ThemeMode.Light;
         languageSelector.SelectedItem = "en-US";
         themeSelector.SelectedItem = ThemeMode.Dark;
-        if (expandedCatalogWindow.VisibleCount != 10 || expandedCatalogWindow.CanShowMore || !expandedCatalogWindow.CanShowLess ||
-            setupWorkspaceHost.GetCategoryChildWindow("catalogs").VisibleCount != 10 ||
-            !setupWorkspaceHost.IsCategoryExpanded("catalogs") ||
-            !setupWorkspaceHost.ShowLessCategories("catalogs") || setupWorkspaceHost.GetCategoryChildWindow("catalogs").VisibleCount != 5)
+        if (expandedCatalogWindow.VisibleCount != 9 || expandedCatalogWindow.CanShowMore || !expandedCatalogWindow.CanShowLess ||
+            setupWorkspaceHost.GetCategoryChildWindow(null).VisibleCount != 9 ||
+            !setupWorkspaceHost.ShowLessCategories(null) || setupWorkspaceHost.GetCategoryChildWindow(null).VisibleCount != 5)
             throw new InvalidOperationException("Setup shared Tree incremental/show-less or presentation-state preservation failed.");
-        Console.WriteLine("SMOKE SETUP_TREE_OVERFLOW: INITIAL=5 MORE=10 LESS=5 COMPANY_CULTURE_THEME_PRESERVED");
+        Console.WriteLine("SMOKE SETUP_TREE_OVERFLOW: INITIAL=5 MORE=9 LESS=5 COMPANY_CULTURE_THEME_PRESERVED");
 
         if (!setupWorkspaceHost.NavigateActionMenu(SetupActionCodes.New, Key.Down) ||
             !setupWorkspaceHost.IsActionMenuOpen(SetupActionCodes.New) ||
@@ -899,30 +899,30 @@ public sealed partial class MainWindow : Window
             throw new InvalidOperationException("Setup menu selection, split default, or safe unknown-command handling failed.");
         Console.WriteLine("SMOKE SETUP_ACTION_VARIANTS: DROPDOWN_KEYBOARD SPLIT_DEFAULT PERMISSIONS UNKNOWN_SAFE PASS");
 
-        var catalogSelected = setupWorkspaceHost.SelectCategory("catalog-01");
-        var definitionSelected = setupWorkspaceHost.SelectDefinition("catalog-definition-01-a");
-        if (!catalogSelected || setupWorkspaceHost.DefinitionCount != 1 || !definitionSelected ||
-            setupWorkspaceHost.LastEditorKind != SetupEditorKind.PropertyForm)
-            throw new InvalidOperationException($"Catalog selection, definition list, or generic editor failed: " +
+        var catalogSelected = setupWorkspaceHost.SelectCategory("catalogs");
+        var definitionSelected = setupWorkspaceHost.SelectDefinition("catalog-02");
+        if (!catalogSelected || setupWorkspaceHost.DefinitionCount != 10 || !definitionSelected ||
+            setupWorkspaceHost.LastEditorKind != SetupEditorKind.Custom)
+            throw new InvalidOperationException($"Catalog selection, 9+ definition list, or specialized editor failed: " +
                 $"category={catalogSelected}/{setupWorkspaceHost.SelectedCategoryId}, rows={setupWorkspaceHost.DefinitionCount}, " +
                 $"definition={definitionSelected}, editor={setupWorkspaceHost.LastEditorKind}.");
-        Console.WriteLine("SMOKE SETUP_CATALOG_EDITOR: PASS");
+        Console.WriteLine("SMOKE SETUP_MASTER_CATALOG_DESIGNER: PASS CATALOGS=10");
 
         if (!setupWorkspaceHost.OpenActionMenu(SetupActionCodes.Clone) ||
             !setupWorkspaceHost.IsActionMenuOpen(SetupActionCodes.Clone) ||
             !setupWorkspaceHost.CloseActionMenu(SetupActionCodes.Clone) ||
             setupWorkspaceHost.IsActionMenuOpen(SetupActionCodes.Clone) ||
-            setupWorkspaceHost.GetCategoryVisualState("catalog-01") != TreeRowVisualState.Selected ||
-            setupWorkspaceHost.GetCategoryVisualState("catalog-01", hover: true) != TreeRowVisualState.SelectedHover ||
-            setupWorkspaceHost.GetCategoryVisualState("catalog-02", hover: true) != TreeRowVisualState.Hover ||
-            setupWorkspaceHost.GetCategoryVisualState("catalog-02", focus: true) != TreeRowVisualState.KeyboardFocus ||
+            setupWorkspaceHost.GetCategoryVisualState("catalogs") != TreeRowVisualState.Selected ||
+            setupWorkspaceHost.GetCategoryVisualState("catalogs", hover: true) != TreeRowVisualState.SelectedHover ||
+            setupWorkspaceHost.GetCategoryVisualState("workspaces", hover: true) != TreeRowVisualState.Hover ||
+            setupWorkspaceHost.GetCategoryVisualState("workspaces", focus: true) != TreeRowVisualState.KeyboardFocus ||
             SetupWorkspaceHost.GetOverflowVisualState(hover: true) != TreeRowVisualState.Hover ||
             treeHost.GetNodeVisualState("disabled") != TreeRowVisualState.Disabled ||
             (await setupWorkspaceHost.ExecuteActionAsync(SetupActionCodes.ToggleDetails)).Status != ActionCommandResultStatus.Success)
             throw new InvalidOperationException("Shared tree row states, dropdown mouse behavior, or toggle action failed.");
         Console.WriteLine("SMOKE SHARED_TREE_ROW_UX: NORMAL HOVER SELECTED SELECTED_HOVER DISABLED FOCUS OVERFLOW PASS");
 
-        setupWorkspaceHost.SetCandidateValue("NAME", "changed");
+        setupWorkspaceHost.SetCandidateValue("DISPLAY_NAME_KEY", "Catalog.Changed");
         var baselineGeometry = setupWorkspaceHost.ActionGeometry(SetupActionCodes.New)!;
         appearanceService.Update(appearanceService.Current with { UiScale = 1.25, FontSize = FontSizePreference.Large });
         var scaledGeometry = setupWorkspaceHost.ActionGeometry(SetupActionCodes.New)!;
@@ -935,7 +935,7 @@ public sealed partial class MainWindow : Window
             scaledGeometry.IconSize != baselineGeometry.IconSize * 1.25 ||
             scaledGeometry.FontSize <= baselineGeometry.FontSize * 1.25 ||
             scaledGeometry.MinWidth != baselineGeometry.MinWidth * 1.25 ||
-            setupWorkspaceHost.SelectedCategoryId != "catalog-01" || !setupWorkspaceHost.Lifecycle.Buffer!.IsDirty ||
+            setupWorkspaceHost.SelectedCategoryId != "catalogs" || !setupWorkspaceHost.Lifecycle.Buffer!.IsDirty ||
             iconRegistry.Resolve(StandardIconKeys.Add).Source is not SvgIconSource ||
             iconRegistry.Resolve(StandardIconKeys.More).Source is not FontGlyphIconSource)
             throw new InvalidOperationException("Action geometry/global scaling or generic SVG/font-glyph icon rendering failed.");
@@ -947,18 +947,56 @@ public sealed partial class MainWindow : Window
             setupWorkspaceHost.ResizeNavigationPane(390) != 390 ||
             setupWorkspaceHost.NavigationPaneWidth != 390 || setupWorkspaceHost.ResizeNavigationPane(215) != 215 ||
             setupWorkspaceHost.NavigationPaneWidth != 215 || !setupWorkspaceHost.Lifecycle.Buffer!.IsDirty ||
-            !Equals(setupWorkspaceHost.Lifecycle.Buffer.Candidate.Values["NAME"], "changed") ||
+            !Equals(setupWorkspaceHost.Lifecycle.Buffer.Candidate.Values["DISPLAY_NAME_KEY"], "Catalog.Changed") ||
             setupWorkspaceHost.SelectedCategoryId != resizeCategoryId || workspaceHost.CurrentDefinition?.WorkspaceId != resizeWorkspaceId ||
             shellPresentation.CultureName != "en-US" || shellPresentation.Theme != ThemeMode.Dark)
             throw new InvalidOperationException("Setup split-navigation resize lost layout or workspace state.");
         Console.WriteLine("SMOKE SETUP_SPLITTER: 260_TO_390_TO_215 STATE_PRESERVED");
-        setupWorkspaceHost.SelectCategory("catalog-02");
-        if (setupWorkspaceHost.SelectedCategoryId != "catalog-01")
+        setupWorkspaceHost.SelectCategory("workspaces");
+        if (setupWorkspaceHost.SelectedCategoryId != "catalogs")
             throw new InvalidOperationException("Dirty Setup navigation was not blocked.");
         if ((await setupWorkspaceHost.ExecuteActionAsync(SetupActionCodes.Cancel)).Status != ActionCommandResultStatus.Success ||
             setupWorkspaceHost.Lifecycle.Buffer!.IsDirty)
             throw new InvalidOperationException("Setup cancel/revert failed.");
         Console.WriteLine("SMOKE SETUP_DIRTY_CANCEL: PASS");
+
+        setupWorkspaceHost.SelectCategory("workspaces");
+        setupWorkspaceHost.SelectDefinition("workspace-3");
+        var templateChoices = setupWorkspaceHost.LastEditorDescriptor!.Fields.Single(x => x.FieldCode == "TEMPLATE_CODE").Choices;
+        if (!templateChoices.Any(x => x.Value == "CALENDAR"))
+            throw new InvalidOperationException("TemplateRegistry-driven CALENDAR choice was not available.");
+        Console.WriteLine("SMOKE SETUP_WORKSPACE_DESIGNER: PASS TEMPLATE_REGISTRY CALENDAR");
+
+        setupWorkspaceHost.SelectCategory("columns");
+        setupWorkspaceHost.SelectDefinition("column-08");
+        if (setupWorkspaceHost.LastEditorKind != SetupEditorKind.Custom || setupWorkspaceHost.Lifecycle.Buffer!.Candidate.Values["COLUMN_MODE"]?.ToString() != "FORMULA")
+            throw new InvalidOperationException("Column designer FORMULA mode failed.");
+        setupWorkspaceHost.SelectDefinition("column-09");
+        if (setupWorkspaceHost.Lifecycle.Buffer!.Candidate.Values["COLUMN_MODE"]?.ToString() != "SYSTEM")
+            throw new InvalidOperationException("Column designer SYSTEM mode failed.");
+        Console.WriteLine("SMOKE SETUP_COLUMN_DESIGNER: PASS INPUT FORMULA SYSTEM GEOMETRY");
+
+        setupWorkspaceHost.SelectCategory("variables");
+        setupWorkspaceHost.SelectDefinition("variable-01");
+        setupWorkspaceHost.SetCandidateValue("VARIABLE_CODE", "QUANTITY_DRAFT");
+        if (!setupWorkspaceHost.Lifecycle.Buffer!.IsDirty)
+            throw new InvalidOperationException("Draft VariableCode was not editable.");
+        setupWorkspaceHost.Lifecycle.CancelChanges();
+        Console.WriteLine("SMOKE SETUP_VARIABLE_DESIGNER: PASS DRAFT_VARIABLE_CODE");
+
+        setupWorkspaceHost.SelectCategory("formulas");
+        setupWorkspaceHost.SelectDefinition("formula-total");
+        if (setupWorkspaceHost.LastEditorDescriptor!.Fields.Single(x => x.FieldCode == "REFERENCED_VARIABLE_CODES").FieldType != EditorFieldType.MultiChoice ||
+            (await setupWorkspaceHost.ExecuteActionAsync(SetupActionCodes.Validate)).Status != ActionCommandResultStatus.Success ||
+            setupWorkspaceHost.Lifecycle.LastValidation?.IsValid != true)
+            throw new InvalidOperationException("Formula picker or valid reference validation failed.");
+        setupWorkspaceHost.Lifecycle.CancelChanges();
+        setupWorkspaceHost.SelectDefinition("formula-invalid");
+        await setupWorkspaceHost.ExecuteActionAsync(SetupActionCodes.Validate);
+        if (setupWorkspaceHost.Lifecycle.LastValidation?.IsValid != false)
+            throw new InvalidOperationException("Bad VariableCode reference was accepted.");
+        setupWorkspaceHost.Lifecycle.CancelChanges();
+        Console.WriteLine("SMOKE SETUP_FORMULA_METADATA: PASS PICKER VALID UNKNOWN_REFERENCE_REJECTED");
 
         setupWorkspaceHost.SelectCategory("general");
         if ((await setupWorkspaceHost.ExecuteActionAsync(SetupActionCodes.New)).Status != ActionCommandResultStatus.Success)
@@ -992,17 +1030,17 @@ public sealed partial class MainWindow : Window
         Console.WriteLine("SMOKE SETUP_READONLY_CLONE: PASS");
 
         setupWorkspaceHost.Lifecycle.CancelChanges();
-        setupWorkspaceHost.SelectCategory("columns");
-        setupWorkspaceHost.SelectDefinition("columns-1");
+        setupWorkspaceHost.SelectCategory("navigation");
+        setupWorkspaceHost.SelectDefinition("navigation-1");
         if (setupWorkspaceHost.LastEditorKind != SetupEditorKind.Unavailable)
-            throw new InvalidOperationException("Specialized editor placeholder was not safe.");
-        Console.WriteLine("SMOKE SETUP_PLACEHOLDER: SAFE_UNAVAILABLE");
+            throw new InvalidOperationException("Missing specialized editor was not safe.");
+        Console.WriteLine("SMOKE SETUP_MISSING_EDITOR: SAFE_UNAVAILABLE");
 
         languageSelector.SelectedItem = "vi-VN";
         themeSelector.SelectedItem = ThemeMode.Light;
         languageSelector.SelectedItem = "en-US";
         themeSelector.SelectedItem = ThemeMode.Dark;
-        if (setupWorkspaceHost.SelectedCategoryId != "columns")
+        if (setupWorkspaceHost.SelectedCategoryId != "navigation")
             throw new InvalidOperationException("Setup culture/theme switch lost selection.");
         Console.WriteLine("SMOKE SETUP_LOCALIZATION_THEME: PASS");
     }

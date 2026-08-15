@@ -1,6 +1,7 @@
 using DynamicUI24.Core.Authorization;
 using DynamicUI24.Core.Setup;
 using DynamicUI24.Shared.Presentation;
+using DynamicUI24.Core.Templates;
 using System.Collections.Immutable;
 
 namespace DynamicUI24.Demo;
@@ -9,7 +10,7 @@ internal static class DemoSetup
 {
     public static IReadOnlyList<SetupCategoryDefinition> Categories { get; } = CreateCategories();
 
-    public static SetupEditorRegistry CreateEditors()
+    public static SetupEditorRegistry CreateEditors(TemplateRegistry templates, DemoSetupProvider provider)
     {
         var fields = new EditorFieldDefinition[]
         {
@@ -27,9 +28,9 @@ internal static class DemoSetup
         };
         var registry = new SetupEditorRegistry();
         registry.Register(new GenericPropertyEditorProvider("GENERIC", fields));
-        registry.Register(new GenericPropertyEditorProvider("CATALOG", fields));
-        registry.Register(new GenericPropertyEditorProvider("WORKSPACE", fields));
         registry.Register(new DemoCustomEditorProvider());
+        DynamicUI24.Template.Setup.SpecializedSetupEditorRegistration.Register(registry, templates,
+            provider.GetVariableDefinitions);
         return registry;
     }
 
@@ -38,18 +39,18 @@ internal static class DemoSetup
         var result = new List<SetupCategoryDefinition>
         {
             Category("general", StandardSetupCategoryCodes.General, "Setup.Category.General", StandardIconKeys.Setup, 0, type: "GENERIC"),
-            Category("catalogs", StandardSetupCategoryCodes.MasterCatalogs, "Setup.Category.MasterCatalogs", StandardIconKeys.Catalog, 10),
-            Category("workspaces", StandardSetupCategoryCodes.Workspaces, "Setup.Category.Workspaces", StandardIconKeys.Workspace, 20, type: "WORKSPACE"),
-            Category("columns", StandardSetupCategoryCodes.ColumnsVariables, "Setup.Category.ColumnsVariables", StandardIconKeys.Columns, 30, type: "COLUMNS_VARIABLES"),
+            Category("catalogs", StandardSetupCategoryCodes.MasterCatalogs, "Setup.Category.MasterCatalogs", StandardIconKeys.Catalog, 10, type: SpecializedSetupDefinitionTypes.MasterCatalog),
+            Category("workspaces", StandardSetupCategoryCodes.Workspaces, "Setup.Category.Workspaces", StandardIconKeys.Workspace, 20, type: SpecializedSetupDefinitionTypes.Workspace),
+            Category("metadata", StandardSetupCategoryCodes.ColumnsVariables, "Setup.Category.ColumnsVariables", StandardIconKeys.Columns, 30),
+            Category("columns", "COLUMNS", "Setup.Category.Columns", StandardIconKeys.Columns, 0, "metadata", SpecializedSetupDefinitionTypes.Column),
+            Category("variables", "VARIABLES", "Setup.Category.Variables", StandardIconKeys.Columns, 10, "metadata", SpecializedSetupDefinitionTypes.Variable),
+            Category("formulas", "FORMULAS", "Setup.Category.Formulas", StandardIconKeys.Columns, 20, "metadata", SpecializedSetupDefinitionTypes.Formula),
             Category("navigation", StandardSetupCategoryCodes.NavigationTree, "Setup.Category.NavigationTree", StandardIconKeys.Tree, 40, type: "NAVIGATION_TREE"),
             Category("ribbon", StandardSetupCategoryCodes.Ribbon, "Setup.Category.Ribbon", StandardIconKeys.Ribbon, 50, type: "RIBBON"),
             Category("actions", StandardSetupCategoryCodes.ActionBars, "Setup.Category.ActionBars", StandardIconKeys.Action, 60, type: "ACTION_BARS"),
             Category("dashboard", StandardSetupCategoryCodes.Dashboard, "Setup.Category.Dashboard", StandardIconKeys.Dashboard, 70, type: "DASHBOARD"),
             Category("reports", StandardSetupCategoryCodes.Reports, "Setup.Category.Reports", StandardIconKeys.Report, 80, type: "REPORTS"),
         };
-        for (var index = 1; index <= 10; index++)
-            result.Add(Category($"catalog-{index:00}", $"CATALOG_{index:00}", $"Setup.Catalog.{index:00}",
-                StandardIconKeys.Catalog, index, "catalogs", "CATALOG"));
         return result;
     }
 
@@ -66,27 +67,17 @@ internal static class DemoSetup
     }
 }
 
-internal sealed class DemoSetupValidator : ISetupDefinitionValidator
-{
-    public SetupValidationResult Validate(SetupDefinitionDescriptor candidate)
-    {
-        var diagnostics = new List<SetupValidationDiagnostic>();
-        if (candidate.Values.TryGetValue("NAME", out var name) && string.IsNullOrWhiteSpace(name?.ToString()))
-            diagnostics.Add(new(SetupDiagnosticSeverity.Error, "SETUP_REQUIRED", new("Setup.Validation.Required"), FieldCode: "NAME"));
-        if (candidate.EffectiveFrom is { } from && candidate.EffectiveTo is { } to && to < from)
-            diagnostics.Add(new(SetupDiagnosticSeverity.Error, "SETUP_EFFECTIVE_RANGE", new("Setup.Validation.EffectiveRange")));
-        if (candidate.Values.TryGetValue("WARNING", out var warning) && Equals(warning, true))
-            diagnostics.Add(new(SetupDiagnosticSeverity.Warning, "SETUP_DEMO_WARNING", new("Setup.Validation.Warning")));
-        return new(diagnostics.ToImmutableArray());
-    }
-}
-
-internal sealed class DemoSetupProvider : ISetupDefinitionProvider
+internal sealed class DemoSetupProvider : ISpecializedSetupDefinitionProvider
 {
     private readonly List<SetupDefinitionDescriptor> definitions = CreateDefinitions();
 
     public IReadOnlyList<SetupDefinitionDescriptor> GetDefinitions(string categoryId, string? scopeKey = null) => definitions
         .Where(x => string.Equals(x.CategoryId, categoryId, StringComparison.OrdinalIgnoreCase))
+        .Where(x => x.ScopeKey is null || string.Equals(x.ScopeKey, scopeKey, StringComparison.OrdinalIgnoreCase))
+        .ToArray();
+
+    public IReadOnlyList<SetupDefinitionDescriptor> GetDefinitionsByType(string definitionType, string? scopeKey = null) => definitions
+        .Where(x => x.DefinitionType.Equals(definitionType, StringComparison.OrdinalIgnoreCase))
         .Where(x => x.ScopeKey is null || string.Equals(x.ScopeKey, scopeKey, StringComparison.OrdinalIgnoreCase))
         .ToArray();
 
@@ -101,6 +92,16 @@ internal sealed class DemoSetupProvider : ISetupDefinitionProvider
 
     public SetupDefinitionDescriptor Retire(SetupDefinitionDescriptor definition) =>
         Upsert(definition with { Status = SetupDefinitionStatus.Retired, IsEditable = false });
+
+    public IReadOnlyList<VariableDefinition> GetVariableDefinitions() => definitions
+        .Where(x => x.DefinitionType == SpecializedSetupDefinitionTypes.Variable)
+        .Select(x => new VariableDefinition(x.DefinitionId,
+            new VariableCode(x.Values[SpecializedSetupFieldCodes.VariableCode]!.ToString()!),
+            x.Values[SpecializedSetupFieldCodes.DisplayNameKey]!.ToString()!,
+            x.Values.GetValueOrDefault(SpecializedSetupFieldCodes.DescriptionKey)?.ToString(),
+            Enum.Parse<ColumnDataType>(x.Values[SpecializedSetupFieldCodes.DataType]!.ToString()!.Replace("_", string.Empty), true),
+            Enum.Parse<VariableScope>(x.Values[SpecializedSetupFieldCodes.VariableScope]!.ToString()!, true),
+            x.Version, x.Status, x.IsSystem)).ToArray();
 
     private SetupDefinitionDescriptor Upsert(SetupDefinitionDescriptor definition)
     {
@@ -121,23 +122,58 @@ internal sealed class DemoSetupProvider : ISetupDefinitionProvider
                 new Dictionary<string, object?> { ["NAME"] = "" }),
             Definition("retired-1", "RETIRED_SAMPLE", "Retired sample", "GENERIC", "general", SetupDefinitionStatus.Retired,
                 new Dictionary<string, object?> { ["NAME"] = "Retired sample" }, false, false),
-            Definition("workspace-1", "PRIMARY_WORKSPACE", "Primary workspace", "WORKSPACE", "workspaces", SetupDefinitionStatus.Published,
-                new Dictionary<string, object?> { ["NAME"] = "Primary workspace", ["ICON_KEY"] = "WORKSPACE" }),
+            Specialized("workspace-1", "PRIMARY_WORKSPACE", "Primary workspace", SpecializedSetupDefinitionTypes.Workspace, "workspaces", SetupDefinitionStatus.Published,
+                new() { ["DISPLAY_NAME_KEY"] = "Workspace.Primary", ["TEMPLATE_CODE"] = "DATA_ENTRY", ["DISPLAY_ORDER"] = 10, ["ICON_KEY"] = "WORKSPACE", ["IS_ACTIVE"] = true, ["COMPANY_SCOPE"] = "GLOBAL" }),
+            Specialized("workspace-2", "ANALYTICS_WORKSPACE", "Analytics workspace", SpecializedSetupDefinitionTypes.Workspace, "workspaces", SetupDefinitionStatus.Draft,
+                new() { ["DISPLAY_NAME_KEY"] = "Workspace.Analytics", ["TEMPLATE_CODE"] = "DASHBOARD", ["DISPLAY_ORDER"] = 20, ["ICON_KEY"] = "DASHBOARD", ["IS_ACTIVE"] = true, ["COMPANY_SCOPE"] = "GLOBAL" }),
+            Specialized("workspace-3", "CALENDAR_WORKSPACE", "Calendar workspace", SpecializedSetupDefinitionTypes.Workspace, "workspaces", SetupDefinitionStatus.Draft,
+                new() { ["DISPLAY_NAME_KEY"] = "Workspace.Calendar", ["TEMPLATE_CODE"] = "CALENDAR", ["DISPLAY_ORDER"] = 30, ["ICON_KEY"] = "CALENDAR", ["IS_ACTIVE"] = true, ["COMPANY_SCOPE"] = "COMPANY" }, scope: "demo-company-a"),
+            Specialized("workspace-unknown", "UNKNOWN_WORKSPACE", "Unknown template safety proof", SpecializedSetupDefinitionTypes.Workspace, "workspaces", SetupDefinitionStatus.Invalid,
+                new() { ["DISPLAY_NAME_KEY"] = "Workspace.Unknown", ["TEMPLATE_CODE"] = "UNKNOWN", ["DISPLAY_ORDER"] = 40, ["ICON_KEY"] = "WORKSPACE", ["IS_ACTIVE"] = false, ["COMPANY_SCOPE"] = "GLOBAL" }),
         };
-        foreach (var type in new[] { "columns", "navigation", "ribbon", "actions", "dashboard", "reports" })
+        foreach (var type in new[] { "navigation", "ribbon", "actions", "dashboard", "reports" })
             list.Add(Definition(type + "-1", type.ToUpperInvariant() + "_SAMPLE", "Foundation placeholder",
                 type.ToUpperInvariant() switch { "COLUMNS" => "COLUMNS_VARIABLES", "NAVIGATION" => "NAVIGATION_TREE", "ACTIONS" => "ACTION_BARS", _ => type.ToUpperInvariant() },
                 type, SetupDefinitionStatus.Draft, new Dictionary<string, object?>()));
-        for (var index = 1; index <= 10; index++)
+        var catalogNames = new[] { "People", "Organization", "Employee type", "Department", "Position", "Finance", "Currency", "Bank", "Region", "Unit" };
+        for (var index = 0; index < catalogNames.Length; index++)
         {
-            var category = $"catalog-{index:00}";
-            list.Add(Definition($"catalog-definition-{index:00}-a", $"ITEM_{index:00}_A", $"Catalog {index:00} item A", "CATALOG", category,
-                SetupDefinitionStatus.Published, new Dictionary<string, object?> { ["NAME"] = $"Catalog {index:00} item A", ["ACTIVE"] = true }, scope: "demo-company-a"));
-            list.Add(Definition($"catalog-definition-{index:00}-b", $"ITEM_{index:00}_B", $"Catalog {index:00} item B", "CATALOG", category,
-                SetupDefinitionStatus.Draft, new Dictionary<string, object?> { ["NAME"] = $"Catalog {index:00} item B", ["ACTIVE"] = true }, scope: "demo-company-b"));
+            var id = $"catalog-{index + 1:00}";
+            var parent = index is 2 or 3 or 4 ? "catalog-01" : index is 6 or 7 ? "catalog-06" : null;
+            list.Add(Specialized(id, catalogNames[index].Replace(' ', '_').ToUpperInvariant(), catalogNames[index], SpecializedSetupDefinitionTypes.MasterCatalog, "catalogs",
+                index == 0 ? SetupDefinitionStatus.Published : SetupDefinitionStatus.Draft,
+                new() { ["DISPLAY_NAME_KEY"] = $"Catalog.{index + 1:00}", ["PARENT_CATALOG_ID"] = parent, ["DISPLAY_ORDER"] = (index + 1) * 10,
+                    ["ICON_KEY"] = "CATALOG", ["IS_ACTIVE"] = true, ["IS_EDITABLE"] = true, ["COMPANY_SCOPE"] = index == 9 ? "COMPANY" : "GLOBAL" },
+                scope: index == 9 ? "demo-company-a" : null));
         }
+        var variableCodes = new[] { "QUANTITY", "UNIT_PRICE", "TOTAL_AMOUNT", "TAX_RATE", "TAX_AMOUNT", "NET_AMOUNT", "CREATED_AT", "IS_ACTIVE", "REFERENCE_CODE", "NOTES" };
+        for (var index = 0; index < variableCodes.Length; index++)
+            list.Add(Specialized($"variable-{index + 1:00}", variableCodes[index], variableCodes[index], SpecializedSetupDefinitionTypes.Variable, "variables",
+                index == 6 ? SetupDefinitionStatus.Published : SetupDefinitionStatus.Draft,
+                new() { ["VARIABLE_CODE"] = variableCodes[index], ["DISPLAY_NAME_KEY"] = $"Variable.{variableCodes[index]}",
+                    ["DATA_TYPE"] = index switch { 6 => "DATETIME", 7 => "BOOLEAN", 9 => "MULTILINE_TEXT", _ => "DECIMAL" },
+                    ["VARIABLE_SCOPE"] = "ROW", ["IS_SYSTEM"] = index == 6 }, system: index == 6, editable: index != 6));
+        for (var index = 0; index < 10; index++)
+        {
+            var mode = index switch { 7 => "FORMULA", 8 => "SYSTEM", _ => "INPUT" };
+            list.Add(Specialized($"column-{index + 1:00}", $"COL_{index + 1:00}", $"Column {index + 1:00}", SpecializedSetupDefinitionTypes.Column, "columns", SetupDefinitionStatus.Draft,
+                new() { ["VARIABLE_CODE"] = variableCodes[index], ["DISPLAY_NAME_KEY"] = $"Column.{index + 1:00}", ["DATA_TYPE"] = index == 8 ? "SYSTEM" : "DECIMAL",
+                    ["EDITOR_KIND"] = mode == "INPUT" ? "NUMBER" : mode, ["COLUMN_MODE"] = mode, ["DISPLAY_ORDER"] = (index + 1) * 10,
+                    ["WIDTH"] = 140m, ["MIN_WIDTH"] = 80m, ["MAX_WIDTH"] = 280m, ["IS_VISIBLE"] = true, ["IS_REQUIRED"] = false, ["IS_EDITABLE"] = mode == "INPUT",
+                    ["FORMULA_DEFINITION_ID"] = mode == "FORMULA" ? "formula-total" : null }));
+        }
+        list.Add(Specialized("formula-total", "TOTAL", "Line total", SpecializedSetupDefinitionTypes.Formula, "formulas", SetupDefinitionStatus.Draft,
+            new() { ["FORMULA_CODE"] = "TOTAL", ["DISPLAY_NAME_KEY"] = "Formula.Total", ["RESULT_VARIABLE_CODE"] = "TOTAL_AMOUNT", ["EXPRESSION_TEXT"] = "QUANTITY * UNIT_PRICE", ["REFERENCED_VARIABLE_CODES"] = "QUANTITY,UNIT_PRICE" }));
+        list.Add(Specialized("formula-net", "NET", "Net amount", SpecializedSetupDefinitionTypes.Formula, "formulas", SetupDefinitionStatus.Published,
+            new() { ["FORMULA_CODE"] = "NET", ["DISPLAY_NAME_KEY"] = "Formula.Net", ["RESULT_VARIABLE_CODE"] = "NET_AMOUNT", ["EXPRESSION_TEXT"] = "TOTAL_AMOUNT + TAX_AMOUNT", ["REFERENCED_VARIABLE_CODES"] = "TOTAL_AMOUNT,TAX_AMOUNT" }, editable: false));
+        list.Add(Specialized("formula-invalid", "INVALID_REFERENCE", "Invalid reference proof", SpecializedSetupDefinitionTypes.Formula, "formulas", SetupDefinitionStatus.Invalid,
+            new() { ["FORMULA_CODE"] = "INVALID_REFERENCE", ["DISPLAY_NAME_KEY"] = "Formula.Invalid", ["RESULT_VARIABLE_CODE"] = "TOTAL_AMOUNT", ["EXPRESSION_TEXT"] = "UNKNOWN_VALUE", ["REFERENCED_VARIABLE_CODES"] = "UNKNOWN_VALUE" }));
         return list;
     }
+
+    private static SetupDefinitionDescriptor Specialized(string id, string code, string name, string type, string category,
+        SetupDefinitionStatus status, Dictionary<string, object?> values, bool system = false, bool editable = true, string? scope = null) =>
+        Definition(id, code, name, type, category, status, values, system, editable, scope);
 
     private static SetupDefinitionDescriptor Definition(string id, string code, string name, string type, string category,
         SetupDefinitionStatus status, IReadOnlyDictionary<string, object?> values, bool system = false, bool editable = true,

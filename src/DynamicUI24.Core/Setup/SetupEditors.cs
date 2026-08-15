@@ -3,7 +3,7 @@ using DynamicUI24.Shared.Presentation;
 
 namespace DynamicUI24.Core.Setup;
 
-public enum EditorFieldType { Text, MultilineText, Boolean, Integer, Decimal, Choice, Date, OptionalDate, IconKey, Localization }
+public enum EditorFieldType { Text, MultilineText, Boolean, Integer, Decimal, Choice, MultiChoice, Date, OptionalDate, IconKey, Localization }
 
 public sealed record EditorChoice(string Value, LocalizationKey DisplayNameKey);
 

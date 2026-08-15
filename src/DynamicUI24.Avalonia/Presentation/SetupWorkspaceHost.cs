@@ -77,7 +77,9 @@ public sealed class SetupWorkspaceHost : Grid
     public ImmutableArray<string> VisibleCategoryCodes => visibleCategoryCodes;
     public int DefinitionCount => definitionList.ItemsSource?.Cast<object>().Count() ?? 0;
     public SetupEditorKind? LastEditorKind { get; private set; }
-    public bool IsCandidateReadOnly => lifecycle.Buffer?.Candidate is { IsEditable: false } or { IsSystem: true };
+    public SetupEditorDescriptor? LastEditorDescriptor { get; private set; }
+    public bool IsCandidateReadOnly => lifecycle.Buffer?.Candidate is { IsEditable: false } or { IsSystem: true }
+        or { Status: SetupDefinitionStatus.Published or SetupDefinitionStatus.Retired };
     public bool HasResizableNavigationSplitter => splitLayout.IsRuntimeResizable;
     public double NavigationPaneWidth => splitLayout.NavigationWidth;
     public double ResizeNavigationPane(double requestedWidth) => splitLayout.ResizeNavigation(requestedWidth);
@@ -129,6 +131,11 @@ public sealed class SetupWorkspaceHost : Grid
 
     public void UpdateContext(CompanyDescriptor newCompany, EffectiveAuthorizationContext? newAuthorization)
     {
+        if (lifecycle.Buffer?.IsDirty == true)
+        {
+            status.Text = localization.Get(new("Setup.Dirty.Blocked"));
+            return;
+        }
         company = newCompany ?? throw new ArgumentNullException(nameof(newCompany));
         authorization = newAuthorization;
         RenderCategories();
@@ -223,7 +230,7 @@ public sealed class SetupWorkspaceHost : Grid
         if (selectedCategory is null) return;
         var selectedId = lifecycle.Buffer?.Source.DefinitionId;
         var query = provider.GetDefinitions(selectedCategory.CategoryId, selectedCategory.ScopeKey ?? company.CompanyId.Value)
-            .OrderBy(x => x.DefinitionCode).AsEnumerable();
+            .OrderBy(x => DefinitionOrder(x)).ThenBy(x => x.DefinitionCode, StringComparer.Ordinal).AsEnumerable();
         if (!string.IsNullOrWhiteSpace(search.Text)) query = query.Where(x => x.DefinitionCode.Contains(search.Text, StringComparison.OrdinalIgnoreCase)
             || x.DisplayName.Contains(search.Text, StringComparison.CurrentCultureIgnoreCase));
         var rows = query.ToArray();
@@ -256,6 +263,7 @@ public sealed class SetupWorkspaceHost : Grid
         var definition = buffer.Candidate;
         editorPanel.Children.Add(new TextBlock { Text = $"{definition.DefinitionCode} · v{definition.Version} · {definition.Status}" });
         var descriptor = editors.Resolve(definition);
+        LastEditorDescriptor = descriptor;
         LastEditorKind = descriptor.Kind;
         if (descriptor.Kind == SetupEditorKind.Unavailable)
         {
@@ -266,7 +274,7 @@ public sealed class SetupWorkspaceHost : Grid
         {
             var label = new TextBlock { Text = localization.Get(field.DisplayNameKey) + (field.IsRequired ? " *" : "") };
             var control = CreateFieldControl(field, definition.Values.GetValueOrDefault(field.FieldCode),
-                !definition.IsEditable || definition.IsSystem || field.IsReadOnly);
+                !definition.IsEditable || definition.IsSystem || definition.Status is SetupDefinitionStatus.Published or SetupDefinitionStatus.Retired || field.IsReadOnly);
             editorPanel.Children.Add(new StackPanel { Spacing = 3, Children = { label, control } });
         }
         RefreshActions();
@@ -286,6 +294,23 @@ public sealed class SetupWorkspaceHost : Grid
             combo.SelectionChanged += (_, _) => UpdateField(field.FieldCode, combo.SelectedItem);
             return combo;
         }
+        if (field.FieldType == EditorFieldType.MultiChoice)
+        {
+            var selected = (value?.ToString() ?? string.Empty).Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var panel = new StackPanel { Spacing = 3 };
+            foreach (var choice in field.Choices)
+            {
+                var check = new CheckBox { Content = $"{choice.Value} · {localization.Get(choice.DisplayNameKey)}", IsChecked = selected.Contains(choice.Value), IsEnabled = !readOnly };
+                check.IsCheckedChanged += (_, _) =>
+                {
+                    if (check.IsChecked == true) selected.Add(choice.Value); else selected.Remove(choice.Value);
+                    UpdateField(field.FieldCode, string.Join(',', field.Choices.Select(x => x.Value).Where(selected.Contains)));
+                };
+                panel.Children.Add(check);
+            }
+            return panel;
+        }
         var text = new TextBox { Text = value?.ToString() ?? field.DefaultValue?.ToString() ?? string.Empty,
             IsReadOnly = readOnly, AcceptsReturn = field.FieldType == EditorFieldType.MultilineText,
             MinHeight = field.FieldType == EditorFieldType.MultilineText ? 70 : 0 };
@@ -304,6 +329,9 @@ public sealed class SetupWorkspaceHost : Grid
 
     private void UpdateField(string code, object? value)
     {
+        if (lifecycle.Buffer?.Candidate is not { IsEditable: true, IsSystem: false } candidate ||
+            candidate.Status is SetupDefinitionStatus.Published or SetupDefinitionStatus.Retired)
+            throw new InvalidOperationException("The definition is read-only.");
         lifecycle.Buffer?.SetValue(code, value);
         status.Text = localization.Get(new("Setup.Dirty.Pending"));
         RefreshActions();
@@ -368,7 +396,7 @@ public sealed class SetupWorkspaceHost : Grid
             "SETUP.NEW" => selectedCategory?.DefinitionType is not null,
             "SETUP.EDIT" => definition is { IsEditable: true, IsSystem: false, IsPublished: false },
             "SETUP.CLONE" => definition?.CloneAllowed == true,
-            "SETUP.VALIDATE" => definition is { IsEditable: true, IsSystem: false },
+            "SETUP.VALIDATE" => definition is { IsEditable: true, IsSystem: false, IsPublished: false } && definition.Status != SetupDefinitionStatus.Retired,
             "SETUP.PUBLISH" => definition is { IsEditable: true, IsSystem: false } && lifecycle.Buffer?.Candidate.ValidationState == SetupValidationState.Valid,
             "SETUP.RETIRE" => definition?.Status == SetupDefinitionStatus.Published && lifecycle.Buffer?.IsDirty == false,
             "SETUP.CANCEL" => lifecycle.Buffer?.IsDirty == true,
@@ -387,8 +415,21 @@ public sealed class SetupWorkspaceHost : Grid
 
     private sealed record DefinitionRow(SetupDefinitionDescriptor Definition)
     {
-        public override string ToString() => $"{Definition.DefinitionCode,-18} {Definition.DisplayName,-24} {Definition.DefinitionType,-14} v{Definition.Version}  {Definition.Status}  {Definition.EffectiveFrom:yyyy-MM-dd}  {Definition.EffectiveTo:yyyy-MM-dd}";
+        public override string ToString()
+        {
+            if (Definition.DefinitionType == SpecializedSetupDefinitionTypes.Column)
+                return $"{Value("DISPLAY_ORDER"),-5} {Definition.DefinitionCode,-16} {Value("VARIABLE_CODE"),-18} {Value("DATA_TYPE"),-14} {Value("EDITOR_KIND"),-14} {Value("COLUMN_MODE"),-8} v{Definition.Version} {Definition.Status}";
+            if (Definition.DefinitionType == SpecializedSetupDefinitionTypes.Variable)
+                return $"{Value("VARIABLE_CODE"),-18} {Definition.DisplayName,-22} {Value("DATA_TYPE"),-14} {Value("VARIABLE_SCOPE"),-12} v{Definition.Version} {Definition.Status}";
+            if (Definition.DefinitionType == SpecializedSetupDefinitionTypes.Formula)
+                return $"{Value("FORMULA_CODE"),-18} {Value("RESULT_VARIABLE_CODE"),-18} {Value("REFERENCED_VARIABLE_CODES"),-28} v{Definition.Version} {Definition.Status}";
+            return $"{Definition.DefinitionCode,-18} {Definition.DisplayName,-24} {Definition.DefinitionType,-14} v{Definition.Version}  {Definition.Status}";
+        }
+        private string Value(string code) => Definition.Values.GetValueOrDefault(code)?.ToString() ?? string.Empty;
     }
+
+    private static int DefinitionOrder(SetupDefinitionDescriptor definition) =>
+        int.TryParse(definition.Values.GetValueOrDefault(SpecializedSetupFieldCodes.DisplayOrder)?.ToString(), out var order) ? order : int.MaxValue;
 
     private sealed class SetupRefreshService(Action refresh) : IActionRefreshService
     {
