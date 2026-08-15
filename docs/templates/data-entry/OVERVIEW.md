@@ -1,18 +1,18 @@
 # DataEntry Grid Core
 
-Tasks 10A/10B provide the reusable metadata-driven table runtime used by `DATA_ENTRY` workspaces. The flow is `GridDefinition + Task 9 ColumnDefinition + IDataEntryGridProvider (optionally IVirtualizedGridDataProvider) + company/workspace/authorization context → DataEntryGridRuntime → DataEntryGridHost`.
+Tasks 10A/10B/10C provide the reusable metadata-driven table runtime used by `DATA_ENTRY` workspaces. The flow is `GridDefinition + Task 9 ColumnDefinition + IDataEntryGridProvider (optionally IVirtualizedGridDataProvider/IGridBatchEditProvider) + company/workspace/authorization context → DataEntryGridRuntime → DataEntryGridHost`.
 
 ## What Grid Core owns
 
 - safe metadata resolution, `VariableCode` value binding and column presentation;
 - async load states, provider failure isolation and generation-based stale-response rejection;
 - `RowKey` selection, sort/filter request state and shared Action Bar status;
-- one active cell candidate, generic required/type validation, commit and cancel;
+- semantic active cell/range state, clipboard matrices, generic validation, edit transactions, and bounded undo/redo;
 - a localized, themed Avalonia table adapter with scrolling and keyboard basics.
 
 ## What it does not own
 
-It does not own application authorization, persistence, business validation/calculation, formula execution, imports/exports, Global Search, Excel range behavior, layout persistence, grouping, pivoting or charting. Providers remain application composition concerns.
+It does not own application authorization, persistence, business validation/calculation, formula execution, imports/exports, Global Search, layout persistence, grouping, pivoting or charting. Providers remain application composition concerns.
 
 ## Public contracts
 
@@ -31,3 +31,5 @@ Duplicate columns/rows, invalid geometry, unknown enum values, missing `Variable
 `GridViewportRequest`, `GridViewportResult`, and `IVirtualizedGridDataProvider` add bounded large-data loading while retaining all 10A contracts. See [virtualization](VIRTUALIZATION.md) and [large-data behavior](LARGE-DATA.md).
 
 Focused commands are documented in [TESTING.md](TESTING.md).
+
+10C topics: [range selection](RANGE-SELECTION.md), [clipboard](CLIPBOARD.md), [paste](PASTE.md), and [undo/redo](UNDO-REDO.md).

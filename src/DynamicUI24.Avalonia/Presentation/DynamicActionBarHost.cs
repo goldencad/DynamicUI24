@@ -366,6 +366,7 @@ public sealed class DynamicActionBarHost : Border
         Add(parts, status.ErrorCount, "ActionBar.Status.Errors");
         Add(parts, status.WarningCount, "ActionBar.Status.Warnings");
         Add(parts, status.PendingChangeCount, "ActionBar.Status.Pending");
+        Add(parts, status.SelectedCells, "ActionBar.Status.SelectedCells");
         if (status.ReadOnlyState is { } readOnly)
             parts.Add(localization.Get(new(readOnly ? "ActionBar.Status.ReadOnly" : "ActionBar.Status.Editable")));
         return string.Join(" · ", parts);

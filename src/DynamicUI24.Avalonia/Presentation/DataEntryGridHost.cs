@@ -20,6 +20,7 @@ public sealed class DataEntryGridHost : UserControl
     private readonly DataEntryGridRuntime runtime;
     private readonly ILocalizationService localization;
     private readonly AppearancePreferenceService? appearance;
+    private readonly IGridClipboardService clipboard;
     private readonly TextBlock stateText = new() { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
     private readonly ScrollViewer scroller = new() { HorizontalScrollBarVisibility = global::Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
         VerticalScrollBarVisibility = global::Avalonia.Controls.Primitives.ScrollBarVisibility.Auto };
@@ -32,11 +33,12 @@ public sealed class DataEntryGridHost : UserControl
     private DateTimeOffset scrollRequestsEnabledAt;
 
     public DataEntryGridHost(DataEntryGridRuntime runtime, ILocalizationService localization,
-        AppearancePreferenceService? appearance = null)
+        AppearancePreferenceService? appearance = null, IGridClipboardService? clipboard = null)
     {
         this.runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
         this.localization = localization ?? throw new ArgumentNullException(nameof(localization));
         this.appearance = appearance;
+        this.clipboard = clipboard ?? new AvaloniaGridClipboardService(this);
         MinHeight = 320;
         runtime.Changed += (_, args) => Dispatcher.UIThread.Post(() =>
         {
@@ -99,6 +101,16 @@ public sealed class DataEntryGridHost : UserControl
     }
 
     public void CancelEdit() { runtime.CancelEdit(); Rebuild(); }
+    public Task<GridPasteResult> CopySelectionAsync(CancellationToken cancellationToken = default) =>
+        runtime.CopyAsync(clipboard, cancellationToken: cancellationToken);
+    public Task<GridPasteResult> CutSelectionAsync(CancellationToken cancellationToken = default) =>
+        runtime.CutAsync(clipboard, cancellationToken: cancellationToken);
+    public Task<GridPasteResult> PasteSelectionAsync(CancellationToken cancellationToken = default) =>
+        runtime.PasteAsync(clipboard, cancellationToken: cancellationToken);
+    public Task<GridPasteResult> ClearSelectionAsync(CancellationToken cancellationToken = default) =>
+        runtime.ClearSelectedCellsAsync(cancellationToken: cancellationToken);
+    public Task<GridPasteResult> UndoAsync(CancellationToken cancellationToken = default) => runtime.UndoAsync(cancellationToken);
+    public Task<GridPasteResult> RedoAsync(CancellationToken cancellationToken = default) => runtime.RedoAsync(cancellationToken);
     public Task SortAsync(VariableCode variableCode, GridSortDirection direction, CancellationToken cancellationToken = default)
     {
         CancelViewportResize(); return runtime.SetSortAsync([new(variableCode, direction)], authorization, cancellationToken);
@@ -118,6 +130,7 @@ public sealed class DataEntryGridHost : UserControl
     public Task RequestViewportAsync(int startIndex, CancellationToken cancellationToken = default)
     {
         CancelViewportResize();
+        scrollRequestsEnabledAt = DateTimeOffset.UtcNow.AddMilliseconds(750);
         return runtime.RequestViewportAsync(startIndex, runtime.RequestedViewportRowCount > 0
             ? runtime.RequestedViewportRowCount : runtime.ViewportOptions.VisibleRowCount, cancellationToken);
     }
@@ -152,7 +165,8 @@ public sealed class DataEntryGridHost : UserControl
             stack.Children.Add(BuildRow(runtime.Rows[index], index, columns, scale));
         scroller.Content = stack;
         scroller.Offset = new Vector(scroller.Offset.X, 0);
-        scrollRequestsEnabledAt = DateTimeOffset.UtcNow.AddMilliseconds(250);
+        var rebuiltGuard = DateTimeOffset.UtcNow.AddMilliseconds(250);
+        if (scrollRequestsEnabledAt < rebuiltGuard) scrollRequestsEnabledAt = rebuiltGuard;
         if (!runtime.IsVirtualized) { Content = scroller; return; }
         var layout = new DockPanel();
         var navigation = BuildViewportNavigation(scale);
@@ -195,7 +209,7 @@ public sealed class DataEntryGridHost : UserControl
         var columnOffset = AddRowNumber(rowGrid, runtime.ViewportStartIndex + localIndex + 1, scale);
         for (var index = 0; index < columns.Count; index++)
         {
-            var cell = BuildCell(row, columns[index], scale);
+            var cell = BuildCell(row, runtime.ViewportStartIndex + localIndex, columns[index], scale);
             Grid.SetColumn(cell, index + columnOffset); rowGrid.Children.Add(cell);
         }
         var border = new Border { Child = rowGrid, BorderThickness = new Thickness(0, 0, 0, 1), Focusable = true,
@@ -219,7 +233,7 @@ public sealed class DataEntryGridHost : UserControl
         return border;
     }
 
-    private Control BuildCell(GridRow row, ResolvedGridColumn column, double scale)
+    private Control BuildCell(GridRow row, int logicalRowPosition, ResolvedGridColumn column, double scale)
     {
         var isEditing = runtime.EditBuffer is { } edit && edit.RowKey == row.RowKey && edit.VariableCode == column.Definition.VariableCode;
         Control content;
@@ -244,13 +258,23 @@ public sealed class DataEntryGridHost : UserControl
                 TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
             content = text;
         }
-        var border = new Border { Child = content, Padding = new Thickness(8 * scale, 3 * scale),
-            BorderThickness = new Thickness(0, 0, 1, 0), Tag = column.Definition.VariableCode };
-        border.Bind(Border.BorderBrushProperty, border.GetResourceObservable("DuiBorderBrush"));
-        border.Bind(Border.BackgroundProperty, border.GetResourceObservable(column.CanEdit && runtime.ResolvedDefinition.CanEdit
-            ? "DuiSurfaceBrush" : "DuiSurfaceRaisedBrush"));
+        var address = new GridCellAddress(row.RowKey, column.Definition.VariableCode);
+        var isActive = runtime.ActiveCell == address;
+        var isSelected = runtime.IsCellSelected(address);
+        var border = new Border { Child = content, Padding = new Thickness(8 * scale, 3 * scale), Focusable = true,
+            BorderThickness = isActive ? new Thickness(2) : new Thickness(0, 0, 1, 0), Tag = column.Definition.VariableCode };
+        border.Bind(Border.BorderBrushProperty, border.GetResourceObservable(isActive ? "DuiFocusBrush" : "DuiBorderBrush"));
+        border.Bind(Border.BackgroundProperty, border.GetResourceObservable(isSelected ? "DuiSelectionBrush" :
+            column.CanEdit && runtime.ResolvedDefinition.CanEdit ? "DuiSurfaceBrush" : "DuiSurfaceRaisedBrush"));
         var mode = column.CanEdit && runtime.ResolvedDefinition.CanEdit ? localization.Get(new("Grid.Editable")) : localization.Get(new("Grid.ReadOnly"));
         AutomationProperties.SetName(border, $"{localization.Get(new(column.Definition.DisplayNameKey))}, {mode}");
+        border.PointerPressed += (_, args) =>
+        {
+            runtime.SelectCell(address, logicalRowPosition, args.KeyModifiers.HasFlag(KeyModifiers.Shift),
+                HasPrimaryModifier(args.KeyModifiers));
+            border.Focus();
+            args.Handled = true;
+        };
         border.DoubleTapped += (_, _) => BeginEdit(row.RowKey, column.Definition.VariableCode);
         return border;
     }
@@ -400,19 +424,54 @@ public sealed class DataEntryGridHost : UserControl
         _ => value.ToString() ?? "—",
     };
 
-    private void HandleKeyDown(object? sender, KeyEventArgs args)
+    private async void HandleKeyDown(object? sender, KeyEventArgs args)
     {
         if (args.Key == Key.Escape && runtime.EditBuffer is not null) { CancelEdit(); args.Handled = true; return; }
-        if (runtime.Rows.Length == 0 || args.Key is not (Key.Up or Key.Down or Key.Enter)) return;
-        var index = runtime.SelectionCount == 0 ? 0 : Array.FindIndex(runtime.Rows.ToArray(), x => runtime.SelectedRowKeys.Contains(x.RowKey));
-        if (args.Key == Key.Up) index = Math.Max(0, index - 1);
-        if (args.Key == Key.Down) index = Math.Min(runtime.Rows.Length - 1, index + 1);
-        runtime.Select([runtime.Rows[index].RowKey]);
-        if (args.Key == Key.Enter)
+        var primary = HasPrimaryModifier(args.KeyModifiers);
+        if (primary)
         {
-            var column = runtime.ResolvedDefinition.Columns.FirstOrDefault(x => runtime.CanEdit(runtime.Rows[index].RowKey, x.Definition.VariableCode));
-            if (column is not null) BeginEdit(runtime.Rows[index].RowKey, column.Definition.VariableCode);
+            if (args.Key == Key.C) await runtime.CopyAsync(clipboard);
+            else if (args.Key == Key.X) await runtime.CutAsync(clipboard);
+            else if (args.Key == Key.V)
+            {
+                if (runtime.EditBuffer is not null) runtime.CancelEdit();
+                await runtime.PasteAsync(clipboard);
+            }
+            else if (args.Key == Key.Z && args.KeyModifiers.HasFlag(KeyModifiers.Shift)) await runtime.RedoAsync();
+            else if (args.Key == Key.Z) await runtime.UndoAsync();
+            else if (args.Key == Key.Y) await runtime.RedoAsync();
+            else if (args.Key == Key.A) runtime.SelectAllCells();
+            else return;
+            args.Handled = true;
+            return;
         }
-        args.Handled = true;
+        if (runtime.Rows.Length == 0) return;
+        var shift = args.KeyModifiers.HasFlag(KeyModifiers.Shift);
+        var handled = args.Key switch
+        {
+            Key.Up => runtime.MoveActiveCell(-1, 0, shift),
+            Key.Down => runtime.MoveActiveCell(1, 0, shift),
+            Key.Left => runtime.MoveActiveCell(0, -1, shift),
+            Key.Right => runtime.MoveActiveCell(0, 1, shift),
+            Key.Tab => runtime.MoveToNextCell(shift, editableOnly: true),
+            _ => false,
+        };
+        if (args.Key is Key.Delete or Key.Back)
+        {
+            await runtime.ClearSelectedCellsAsync(); handled = true;
+        }
+        else if (args.Key == Key.Enter && runtime.ActiveCell is { } active)
+        {
+            if (runtime.EditBuffer is null) BeginEdit(active.RowKey, active.VariableCode);
+            handled = true;
+        }
+        else if (args.Key == Key.Escape && runtime.CellSelection.HasCellSelection)
+        {
+            runtime.ClearCellSelection(); handled = true;
+        }
+        args.Handled = handled;
     }
+
+    private static bool HasPrimaryModifier(KeyModifiers modifiers) =>
+        modifiers.HasFlag(KeyModifiers.Control) || modifiers.HasFlag(KeyModifiers.Meta);
 }

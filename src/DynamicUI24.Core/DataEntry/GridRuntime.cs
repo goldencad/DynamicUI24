@@ -19,7 +19,7 @@ public sealed class GridRuntimeChangedEventArgs(string reason) : EventArgs
 }
 
 /// <summary>UI-platform-free state machine for loading, selection, sorting, filtering and one-cell editing.</summary>
-public sealed class DataEntryGridRuntime
+public sealed partial class DataEntryGridRuntime
 {
     private readonly IDataEntryGridProvider provider;
     private readonly IVirtualizedGridDataProvider? viewportProvider;
@@ -27,15 +27,18 @@ public sealed class DataEntryGridRuntime
     private CancellationTokenSource? activeRequest;
     private long generation;
     private GridProviderContext? context;
+    private readonly GridEditHistory editHistory;
 
     public DataEntryGridRuntime(GridDefinition definition, IDataEntryGridProvider provider,
-        GridViewportOptions? viewportOptions = null)
+        GridViewportOptions? viewportOptions = null, GridPasteOptions? pasteOptions = null)
     {
         Definition = definition ?? throw new ArgumentNullException(nameof(definition));
         this.provider = provider ?? throw new ArgumentNullException(nameof(provider));
         viewportProvider = provider as IVirtualizedGridDataProvider;
         ViewportOptions = viewportOptions ?? new();
         windowCache = new(ViewportOptions.MaximumCachedWindows);
+        PasteOptions = pasteOptions ?? new();
+        editHistory = new(PasteOptions.HistoryDepth);
         Sorts = definition.DefaultSort;
         Filters = definition.DefaultFilter;
         ResolvedDefinition = GridMetadataResolver.Resolve(definition, null);
@@ -43,11 +46,13 @@ public sealed class DataEntryGridRuntime
 
     public GridDefinition Definition { get; }
     public GridViewportOptions ViewportOptions { get; }
+    public GridPasteOptions PasteOptions { get; }
     public bool IsVirtualized => viewportProvider is not null;
     public ResolvedGridDefinition ResolvedDefinition { get; private set; }
     public GridProviderState State { get; private set; } = GridProviderState.Loading;
     public ImmutableArray<GridRow> Rows { get; private set; } = [];
     public ImmutableHashSet<RowKey> SelectedRowKeys { get; private set; } = [];
+    public GridSelectionState CellSelection { get; private set; } = GridSelectionState.Empty;
     public ImmutableArray<GridSortDefinition> Sorts { get; private set; }
     public ImmutableArray<GridFilterDefinition> Filters { get; private set; }
     public GridEditBuffer? EditBuffer { get; private set; }
@@ -63,13 +68,26 @@ public sealed class DataEntryGridRuntime
     public long Generation => Volatile.Read(ref generation);
     public string? DiagnosticCode { get; private set; }
     public int SelectionCount => SelectedRowKeys.Count;
+    public int SelectedCellCount => GetSelectedCellCount();
+    public int InteractionSelectionCount => SelectedCellCount > 0 ? SelectedCellCount : SelectionCount;
+    public bool CanUndo => editHistory.CanUndo;
+    public bool CanRedo => editHistory.CanRedo;
+    public GridPasteResult? LastPasteResult { get; private set; }
     public int ErrorCount => Rows.Sum(x => x.ErrorCount) + (EditBuffer?.Diagnostic is null ? 0 : 1);
     public int WarningCount => Rows.Sum(x => x.WarningCount);
     public int PendingChangeCount => EditBuffer?.IsDirty == true ? 1 : 0;
     public event EventHandler<GridRuntimeChangedEventArgs>? Changed;
 
-    public ActionBarStatus Status => new(TotalRows, VisibleRows, SelectionCount, ErrorCount, WarningCount,
-        PendingChangeCount, !ResolvedDefinition.CanEdit);
+    public ActionBarStatus Status
+    {
+        get
+        {
+            var range = CellSelection.PrimaryRange;
+            return new(TotalRows, VisibleRows, SelectionCount, ErrorCount, WarningCount,
+                PendingChangeCount, !ResolvedDefinition.CanEdit, SelectedCellCount,
+                range?.RowCount, range is null ? null : RangeColumnCount(range));
+        }
+    }
 
     public async Task LoadAsync(GridProviderContext newContext, EffectiveAuthorizationContext? authorization,
         CancellationToken cancellationToken = default)
@@ -80,7 +98,8 @@ public sealed class DataEntryGridRuntime
         context = newContext;
         if (contextChanged)
         {
-            SelectedRowKeys = []; EditBuffer = null; Rows = []; TotalRows = 0; VisibleRows = 0;
+            SelectedRowKeys = []; CellSelection = GridSelectionState.Empty; EditBuffer = null; Rows = []; TotalRows = 0; VisibleRows = 0;
+            LastPasteResult = null; editHistory.Clear();
             ViewportStartIndex = 0; RequestedViewportStartIndex = 0; windowCache.Clear();
         }
         ResolvedDefinition = GridMetadataResolver.Resolve(Definition, authorization);
@@ -106,6 +125,7 @@ public sealed class DataEntryGridRuntime
             Rows = result.Rows; TotalRows = Math.Max(0, result.TotalRows); VisibleRows = Math.Max(0, result.VisibleRows);
             State = result.State; DiagnosticCode = result.DiagnosticCode;
             SelectedRowKeys = SelectedRowKeys.Intersect(Rows.Select(x => x.RowKey)).ToImmutableHashSet();
+            ReconcileCellSelection();
             OnChanged("LOADED");
         }
         catch (OperationCanceledException) when (requestGeneration != Volatile.Read(ref generation)) { }
@@ -179,6 +199,7 @@ public sealed class DataEntryGridRuntime
         Interlocked.Increment(ref generation);
         activeRequest?.Cancel(); activeRequest?.Dispose(); activeRequest = null;
         windowCache.Clear(); Rows = []; TotalRows = 0; VisibleRows = 0; State = GridProviderState.Unavailable;
+        SelectedRowKeys = []; CellSelection = GridSelectionState.Empty; EditBuffer = null; LastPasteResult = null; editHistory.Clear();
         HasPreviousViewport = false; HasNextViewport = false; OnChanged("DEACTIVATED");
     }
 
@@ -200,6 +221,7 @@ public sealed class DataEntryGridRuntime
             GridSelectionMode.Multiple => requested.ToImmutableHashSet(),
             _ => [],
         };
+        CellSelection = CellSelection with { SelectedRowKeys = SelectedRowKeys, SelectionMode = GridCellSelectionMode.Row };
         OnChanged("SELECTION");
     }
 
@@ -208,6 +230,7 @@ public sealed class DataEntryGridRuntime
         if (Definition.SelectionMode == GridSelectionMode.None || !Rows.Any(x => x.RowKey == rowKey)) return;
         if (Definition.SelectionMode == GridSelectionMode.Single) SelectedRowKeys = [rowKey];
         else SelectedRowKeys = SelectedRowKeys.Contains(rowKey) ? SelectedRowKeys.Remove(rowKey) : SelectedRowKeys.Add(rowKey);
+        CellSelection = CellSelection with { SelectedRowKeys = SelectedRowKeys, SelectionMode = GridCellSelectionMode.Row };
         OnChanged("SELECTION");
     }
 
@@ -242,6 +265,9 @@ public sealed class DataEntryGridRuntime
         if (!result.IsSuccess) return result;
         Rows = Rows.Select(x => x.RowKey == buffer.RowKey ? x.WithValue(buffer.VariableCode, result.CommittedValue) : x).ToImmutableArray();
         windowCache.UpdateCell(buffer.RowKey, buffer.VariableCode, result.CommittedValue);
+        editHistory.Record(GridEditTransaction.Create([
+            new GridCellChange(buffer.RowKey, buffer.VariableCode, buffer.SourceValue, result.CommittedValue)],
+            GridEditSourceAction.SingleCell) with { CommitState = GridEditCommitState.Committed });
         EditBuffer = null; OnChanged("EDIT_COMMIT"); return result;
     }
 
@@ -276,7 +302,7 @@ public sealed class DataEntryGridRuntime
 
     private void ApplyFailure(GridProviderState state, string code)
     {
-        State = state; Rows = []; TotalRows = 0; VisibleRows = 0; SelectedRowKeys = []; EditBuffer = null;
+        State = state; Rows = []; TotalRows = 0; VisibleRows = 0; SelectedRowKeys = []; CellSelection = GridSelectionState.Empty; EditBuffer = null;
         DiagnosticCode = code; OnChanged("FAILURE");
     }
 
@@ -307,6 +333,7 @@ public sealed class DataEntryGridRuntime
         State = result.Rows.Length == 0 ? GridProviderState.Empty : GridProviderState.Ready;
         DiagnosticCode = result.DiagnosticCode;
         RequestedViewportStartIndex = key.StartIndex; RequestedViewportRowCount = key.RequestedRowCount;
+        ReconcileCellSelection();
         OnChanged("VIEWPORT_LOADED");
     }
 

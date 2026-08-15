@@ -87,6 +87,37 @@ public sealed class DataEntryGridArchitectureTests
         Assert.DoesNotContain("Excel", source, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public void RangeClipboardAndTransactionsStaySemanticPlatformFreeAndBounded()
+    {
+        var selection = File.ReadAllText(Path("src/DynamicUI24.Core/DataEntry/GridSelection.cs"));
+        var clipboard = File.ReadAllText(Path("src/DynamicUI24.Core/DataEntry/GridClipboard.cs"));
+        var editing = File.ReadAllText(Path("src/DynamicUI24.Core/DataEntry/GridEditing.cs"));
+        var runtime = File.ReadAllText(Path("src/DynamicUI24.Core/DataEntry/GridRuntimeEditing.cs"));
+        Assert.Contains("GridCellAddress(RowKey RowKey, VariableCode VariableCode)", selection, StringComparison.Ordinal);
+        Assert.Contains("ImmutableArray<GridCellRange>", selection, StringComparison.Ordinal);
+        Assert.Contains("IsAllSelected", selection, StringComparison.Ordinal);
+        Assert.DoesNotContain("Control", selection, StringComparison.Ordinal);
+        Assert.Contains("IGridClipboardService", clipboard, StringComparison.Ordinal);
+        Assert.DoesNotContain("Avalonia", clipboard, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("IGridBatchEditProvider", editing, StringComparison.Ordinal);
+        Assert.Contains("GridEditTransaction", editing, StringComparison.Ordinal);
+        Assert.Contains("HistoryDepth", editing, StringComparison.Ordinal);
+        Assert.Contains("IGridLogicalRowProvider", runtime, StringComparison.Ordinal);
+        Assert.DoesNotContain("OperatingSystem", runtime, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PlatformClipboardAndShortcutMappingRemainInPresentationLayer()
+    {
+        var bridge = File.ReadAllText(Path("src/DynamicUI24.Avalonia/Presentation/AvaloniaGridClipboardService.cs"));
+        var host = File.ReadAllText(Path("src/DynamicUI24.Avalonia/Presentation/DataEntryGridHost.cs"));
+        Assert.Contains("TopLevel.GetTopLevel", bridge, StringComparison.Ordinal);
+        Assert.Contains("KeyModifiers.Meta", host, StringComparison.Ordinal);
+        Assert.Contains("KeyModifiers.Control", host, StringComparison.Ordinal);
+        Assert.Contains("DuiSelectionBrush", host, StringComparison.Ordinal);
+    }
+
     private static string ReadDirectory(string relative) => string.Join('\n',
         Directory.EnumerateFiles(Path(relative), "*.cs", SearchOption.AllDirectories).OrderBy(x => x).Select(File.ReadAllText));
     private static string Path(string relative) => System.IO.Path.Combine(Root, relative.Replace('/', System.IO.Path.DirectorySeparatorChar));

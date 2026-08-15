@@ -27,7 +27,10 @@ public sealed record ActionBarStatus(
     int? ErrorCount = null,
     int? WarningCount = null,
     int? PendingChangeCount = null,
-    bool? ReadOnlyState = null);
+    bool? ReadOnlyState = null,
+    int? SelectedCells = null,
+    int? SelectionRows = null,
+    int? SelectionColumns = null);
 
 public sealed record ActionBarResolutionContext(
     CompanyDescriptor Company,
@@ -36,7 +39,8 @@ public sealed record ActionBarResolutionContext(
     EffectiveAuthorizationContext? Authorization,
     ActionSelectionContext Selection,
     PresentationState PresentationState,
-    ActionBarStatus? Status = null);
+    ActionBarStatus? Status = null,
+    IReadOnlyDictionary<string, bool>? ActionAvailability = null);
 
 public sealed record ActionBarDiagnostic(string Code, string? ActionCode = null);
 
@@ -81,6 +85,8 @@ public sealed class DynamicActionBarResolver
             if ((action.RequiresSelection && count == 0) ||
                 (action.MinSelection is { } min && count < min) ||
                 (action.MaxSelection is { } max && count > max))
+                state = Combine(state, AuthorizationPresentationState.VisibleDisabled);
+            if (context.ActionAvailability?.TryGetValue(action.ActionCode, out var available) == true && !available)
                 state = Combine(state, AuthorizationPresentationState.VisibleDisabled);
             if (context.PresentationState.Kind is PresentationStateKind.Loading or PresentationStateKind.Error or PresentationStateKind.Unavailable)
                 state = Combine(state, AuthorizationPresentationState.VisibleDisabled);

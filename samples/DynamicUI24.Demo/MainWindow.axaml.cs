@@ -163,6 +163,12 @@ public sealed partial class MainWindow : Window
             Task.FromResult(ActionCommandResult.Success("Custom registered Action Bar command dispatched.")));
         actionCommands.Register("DEMO.ACTION.GATED", (_, _) =>
             Task.FromResult(ActionCommandResult.Success("Permission-gated Action Bar command dispatched.")));
+        actionCommands.Register("DEMO.GRID.COPY", async (_, token) => GridActionResult(await dataEntryGridHost.CopySelectionAsync(token)));
+        actionCommands.Register("DEMO.GRID.CUT", async (_, token) => GridActionResult(await dataEntryGridHost.CutSelectionAsync(token)));
+        actionCommands.Register("DEMO.GRID.PASTE", async (_, token) => GridActionResult(await dataEntryGridHost.PasteSelectionAsync(token)));
+        actionCommands.Register("DEMO.GRID.UNDO", async (_, token) => GridActionResult(await dataEntryGridHost.UndoAsync(token)));
+        actionCommands.Register("DEMO.GRID.REDO", async (_, token) => GridActionResult(await dataEntryGridHost.RedoAsync(token)));
+        actionCommands.Register("DEMO.GRID.CLEAR", async (_, token) => GridActionResult(await dataEntryGridHost.ClearSelectionAsync(token)));
         actionCommands.Register("DEMO.UPDATE_AND_RESTART", (_, _) =>
             Task.FromResult(ActionCommandResult.Success("Update-ready guidance command dispatched; no updater was run.")));
         actionDispatcher = new ActionBarCommandDispatcher(
@@ -519,7 +525,16 @@ public sealed partial class MainWindow : Window
         companyScope.Snapshot.AuthorizationContext,
         new ActionSelectionContext(CurrentSelectionCount(workspace)),
         shellPresentation.State,
-        CreateActionBarStatus(workspace));
+        CreateActionBarStatus(workspace),
+        workspace.WorkspaceId == "data-entry-demo" ? new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["COPY"] = dataEntryGridHost.Runtime.CellSelection.HasCellSelection,
+            ["CUT"] = dataEntryGridHost.Runtime.CanClearCellSelection(),
+            ["PASTE"] = dataEntryGridHost.Runtime.ActiveCell is not null,
+            ["CLEAR"] = dataEntryGridHost.Runtime.CanClearCellSelection(),
+            ["UNDO"] = dataEntryGridHost.Runtime.CanUndo,
+            ["REDO"] = dataEntryGridHost.Runtime.CanRedo,
+        } : null);
 
     private ActionBarStatus CreateActionBarStatus(WorkspaceDefinition workspace)
     {
@@ -593,8 +608,12 @@ public sealed partial class MainWindow : Window
     }
 
     private int CurrentSelectionCount(WorkspaceDefinition workspace) => workspace.WorkspaceId == "data-entry-demo"
-        ? dataEntryGridHost.Runtime.SelectionCount
+        ? dataEntryGridHost.Runtime.InteractionSelectionCount
         : selectionSelector.SelectedItem is int count ? count : 0;
+
+    private static ActionCommandResult GridActionResult(GridPasteResult result) => result.DiagnosticCode is null
+        ? ActionCommandResult.Success($"{result.AppliedCellCount} cell(s)")
+        : ActionCommandResult.Unavailable(result.DiagnosticCode);
 
     private Task LoadDataEntryAsync(CompanyDescriptor company, EffectiveAuthorizationContext? effectiveAuthorization) =>
         dataEntryGridHost.LoadAsync(new(company, "data-entry-demo"), effectiveAuthorization);
@@ -966,11 +985,77 @@ public sealed partial class MainWindow : Window
             throw new InvalidOperationException("Cancel or formula/system read-only behavior failed.");
         Console.WriteLine("SMOKE GRID_EDIT: INPUT_INVALID_COMMIT_CANCEL FORMULA_SYSTEM_READONLY PASS");
 
+        var visible = runtime.ResolvedDefinition.Columns.Where(x => x.IsVisible).ToArray();
+        var nameColumn = Array.FindIndex(visible, x => x.Definition.VariableCode == name);
+        var quantityColumn = Array.FindIndex(visible, x => x.Definition.VariableCode == quantity);
+        runtime.SelectCell(new(first.RowKey, name), runtime.ViewportStartIndex);
+        runtime.SelectCell(new(second.RowKey, quantity), runtime.ViewportStartIndex + 1, extend: true);
+        var nativeClipboard = TopLevel.GetTopLevel(dataEntryGridHost)?.Clipboard ??
+            throw new InvalidOperationException("Native clipboard unavailable during GUI smoke.");
+        if ((await dataEntryGridHost.CopySelectionAsync()).DiagnosticCode is not null)
+            throw new InvalidOperationException("2x3 native clipboard copy failed.");
+        var copied = await nativeClipboard.GetTextAsync();
+        if (copied?.Split('\n').Length != 2 || copied.Split('\n')[0].Split('\t').Length != quantityColumn - nameColumn + 1)
+            throw new InvalidOperationException("Native clipboard rectangle shape failed.");
+        var third = runtime.Rows[2]; var fourth = runtime.Rows[3];
+        runtime.SelectCell(new(third.RowKey, name), runtime.ViewportStartIndex + 2);
+        runtime.SelectCell(new(fourth.RowKey, quantity), runtime.ViewportStartIndex + 3, extend: true);
+        if ((await dataEntryGridHost.PasteSelectionAsync()).AppliedCellCount != 6 ||
+            !Equals(runtime.GetValue(third.RowKey, name, out _), originalName))
+            throw new InvalidOperationException("2x3 native clipboard paste failed.");
+
+        var notes = new VariableCode("NOTES");
+        await nativeClipboard.SetTextAsync("filled note");
+        runtime.SelectCell(new(first.RowKey, notes), runtime.ViewportStartIndex);
+        runtime.SelectCell(new(third.RowKey, notes), runtime.ViewportStartIndex + 2, extend: true);
+        if ((await dataEntryGridHost.PasteSelectionAsync()).AppliedCellCount != 3)
+            throw new InvalidOperationException("Single value range fill failed.");
+        runtime.SelectCell(new(first.RowKey, quantity), runtime.ViewportStartIndex);
+        await nativeClipboard.SetTextAsync("not-an-integer");
+        if ((await dataEntryGridHost.PasteSelectionAsync()).DiagnosticCode != "GRID_PASTE_ATOMIC_REJECTED")
+            throw new InvalidOperationException("Invalid paste was not diagnosed.");
+        runtime.SelectCell(new(first.RowKey, new("TOTAL")), runtime.ViewportStartIndex);
+        await nativeClipboard.SetTextAsync("1");
+        if ((await dataEntryGridHost.PasteSelectionAsync()).DiagnosticCode != "GRID_PASTE_ATOMIC_REJECTED")
+            throw new InvalidOperationException("Formula paste protection failed.");
+        runtime.SelectCell(new(first.RowKey, notes), runtime.ViewportStartIndex);
+        if ((await dataEntryGridHost.CutSelectionAsync()).AppliedCellCount != 1 || runtime.GetValue(first.RowKey, notes, out _) is not null)
+            throw new InvalidOperationException("Cut failed.");
+        if ((await dataEntryGridHost.UndoAsync()).AppliedCellCount != 1 ||
+            (await dataEntryGridHost.RedoAsync()).AppliedCellCount != 1)
+            throw new InvalidOperationException("Undo/redo failed.");
+        runtime.SelectCell(new(second.RowKey, notes), runtime.ViewportStartIndex + 1);
+        if ((await dataEntryGridHost.ClearSelectionAsync()).AppliedCellCount != 1 ||
+            (await dataEntryGridHost.UndoAsync()).AppliedCellCount != 1 ||
+            (await dataEntryGridHost.RedoAsync()).AppliedCellCount != 1)
+            throw new InvalidOperationException("Clear undo/redo failed.");
+        if ((await runtime.CopyAsync(new UnavailableGridClipboard())).DiagnosticCode != "GRID_CLIPBOARD_UNAVAILABLE")
+            throw new InvalidOperationException("Unavailable clipboard did not fail safely.");
+        Console.WriteLine("SMOKE GRID_CLIPBOARD_EDITING: ACTIVE SHIFT 2X3 COPY_PASTE FILL INVALID READONLY CUT CLEAR UNDO REDO PASS");
+
+        runtime.SelectCell(new(first.RowKey, name), runtime.ViewportStartIndex);
+        await dataEntryGridHost.RequestViewportAsync(60);
+        var across = runtime.Rows.Single(x => x.RowKey.Value.EndsWith(":ROW:000062", StringComparison.Ordinal));
+        runtime.SelectCell(new(across.RowKey, name), 61, extend: true);
+        await nativeClipboard.SetTextAsync("cross-window");
+        if ((await dataEntryGridHost.PasteSelectionAsync()).AppliedCellCount != 62 || runtime.SelectedRanges.Length != 1)
+            throw new InvalidOperationException("Cross-window paste or compact range failed.");
+        await dataEntryGridHost.RequestViewportAsync(0);
+        if (!Equals(runtime.GetValue(first.RowKey, name, out _), "cross-window") || runtime.SelectedRanges.Length != 1)
+            throw new InvalidOperationException("Cross-window persisted value or selection scroll survival failed.");
+        runtime.SelectCell(new(first.RowKey, name), 0);
+        runtime.SelectCell(new(new($"{companyContext.CurrentCompany.CompanyId.Value}:ROW:010001"), name), 10_000, extend: true);
+        if (!(await runtime.PasteTextAsync("large")).RequiresConfirmation)
+            throw new InvalidOperationException("Large paste confirmation guard failed.");
+        Console.WriteLine("SMOKE GRID_VIRTUAL_RANGE: CROSS_WINDOW SELECTION_SCROLL LARGE_GUARD 100K_BOUNDED PASS");
+
         runtime.Select([first.RowKey]);
         dataEntryGridHost.BeginEdit(first.RowKey, name); dataEntryGridHost.SetCandidate("Viewport draft");
         await dataEntryGridHost.RequestViewportAsync(90_000);
         if (!runtime.SelectedRowKeys.Contains(first.RowKey) || runtime.EditBuffer?.CandidateValue?.ToString() != "Viewport draft" ||
-            runtime.RequestedViewportStartIndex != 90_000 || runtime.Rows.Length > runtime.ViewportOptions.MaximumMaterializedRows)
+            runtime.RequestedViewportStartIndex < 90_000 ||
+            runtime.RequestedViewportStartIndex > 90_000 + runtime.RequestedViewportRowCount ||
+            runtime.Rows.Length > runtime.ViewportOptions.MaximumMaterializedRows)
             throw new InvalidOperationException($"Far jump failed: selected={runtime.SelectedRowKeys.Contains(first.RowKey)} " +
                 $"edit={runtime.EditBuffer?.CandidateValue} start={runtime.RequestedViewportStartIndex} rows={runtime.Rows.Length}.");
         await dataEntryGridHost.RequestViewportAsync(0);
@@ -983,7 +1068,8 @@ public sealed partial class MainWindow : Window
         await dataEntryGridHost.SortAsync(new("ITEM_CODE"), GridSortDirection.Descending);
         await Task.Delay(220);
         if (!runtime.SelectedRowKeys.Contains(selectedKey) || runtime.Rows[0].RowKey == selectedKey)
-            throw new InvalidOperationException("Sort did not preserve RowKey selection.");
+            throw new InvalidOperationException($"Sort did not preserve RowKey selection: selected={runtime.SelectedRowKeys.Contains(selectedKey)} " +
+                $"selectedKey={selectedKey} first={runtime.Rows[0].RowKey} sort={runtime.Sorts.FirstOrDefault()?.Direction}.");
         await dataEntryGridHost.FilterAsync(new(new("ITEM_CODE"), GridFilterOperator.Contains, "-00"));
         if (runtime.VisibleRows is <= 0 or >= DemoDataEntryProvider.LogicalRowCount || !runtime.SelectedRowKeys.Contains(selectedKey))
             throw new InvalidOperationException("Filter/count/selection behavior failed.");
@@ -1012,6 +1098,14 @@ public sealed partial class MainWindow : Window
         if (runtime.Rows.Any(x => !x.RowKey.Value.StartsWith($"{companyB.CompanyId.Value}:", StringComparison.Ordinal)))
             throw new InvalidOperationException("Stale Company A response replaced Company B rows.");
         Console.WriteLine("SMOKE GRID_COMPANY_STALE_RESPONSE: A_TO_B_BLOCKED PASS");
+    }
+
+    private sealed class UnavailableGridClipboard : IGridClipboardService
+    {
+        public Task<string?> ReadTextAsync(CancellationToken cancellationToken = default) =>
+            Task.FromException<string?>(new InvalidOperationException("unavailable"));
+        public Task WriteTextAsync(string text, CancellationToken cancellationToken = default) =>
+            Task.FromException(new InvalidOperationException("unavailable"));
     }
 
     private async Task RunNotificationSmokeAsync()

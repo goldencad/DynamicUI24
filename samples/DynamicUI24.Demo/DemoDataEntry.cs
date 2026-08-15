@@ -39,7 +39,7 @@ internal static class DemoDataEntry
             visible, required, permission, format, null, null, null, 1, SetupDefinitionStatus.Published);
 }
 
-internal sealed class DemoDataEntryProvider : IVirtualizedGridDataProvider
+internal sealed class DemoDataEntryProvider : IVirtualizedGridDataProvider, IGridLogicalRowProvider, IGridBatchEditProvider
 {
     public const int LogicalRowCount = 100_000;
     private readonly object sync = new();
@@ -98,6 +98,48 @@ internal sealed class DemoDataEntryProvider : IVirtualizedGridDataProvider
             var value = ConvertCandidate(edit.CandidateValue, current);
             edits[(context.Company.CompanyId, edit.RowKey, edit.VariableCode)] = value;
             return Task.FromResult(GridCommitResult.Success(value));
+        }
+    }
+
+    public Task<ImmutableArray<GridRow>> ResolveRowsAsync(GridProviderContext context, int startPosition, int rowCount,
+        ImmutableArray<GridSortDefinition> sorts, ImmutableArray<GridFilterDefinition> filters,
+        long requestGeneration, CancellationToken cancellationToken = default)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(startPosition);
+        if (rowCount <= 0) throw new ArgumentOutOfRangeException(nameof(rowCount));
+        var descending = sorts.FirstOrDefault()?.Direction == GridSortDirection.Descending;
+        var rows = ImmutableArray.CreateBuilder<GridRow>(rowCount);
+        var matched = 0;
+        for (var offset = 0; offset < LogicalRowCount && rows.Count < rowCount; offset++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var logicalIndex = descending ? LogicalRowCount - offset : offset + 1;
+            if (!Matches(logicalIndex, context.Company, filters)) continue;
+            if (matched++ >= startPosition) rows.Add(BuildRow(context.Company, logicalIndex));
+        }
+        Interlocked.Add(ref generatedRowCount, rows.Count);
+        return Task.FromResult(rows.ToImmutable());
+    }
+
+    public Task<GridBatchCommitResult> CommitBatchAsync(GridProviderContext context, GridEditTransaction transaction,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (sync)
+        {
+            var resolved = new List<(GridCellChange Change, object? Value)>(transaction.CellChanges.Length);
+            foreach (var change in transaction.CellChanges)
+            {
+                var separator = change.RowKey.Value.LastIndexOf(':');
+                if (separator < 0 || !int.TryParse(change.RowKey.Value[(separator + 1)..], out var logicalIndex) ||
+                    logicalIndex is < 1 or > LogicalRowCount)
+                    return Task.FromResult(GridBatchCommitResult.Rejected("GRID_ROW_UNAVAILABLE"));
+                var current = BuildRow(context.Company, logicalIndex).Values.GetValueOrDefault(change.VariableCode);
+                resolved.Add((change, ConvertCandidate(change.CandidateValue, current)));
+            }
+            foreach (var item in resolved)
+                edits[(context.Company.CompanyId, item.Change.RowKey, item.Change.VariableCode)] = item.Value;
+            return Task.FromResult(GridBatchCommitResult.Success);
         }
     }
 
