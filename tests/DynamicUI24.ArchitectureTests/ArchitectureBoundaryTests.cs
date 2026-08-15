@@ -144,6 +144,35 @@ public sealed class ArchitectureBoundaryTests
     }
 
     [Fact]
+    public void ApplicationMenuIsOwnedByFrameworkShellAndNotTemplates()
+    {
+        var frameworkNamespaces = new[] { "DynamicUI24.Core", "DynamicUI24.Avalonia" }
+            .SelectMany(ReadTypeNamespaces)
+            .Where(value => value.Contains("ApplicationMenu", StringComparison.Ordinal))
+            .ToArray();
+        Assert.NotEmpty(frameworkNamespaces);
+
+        foreach (var template in Projects.Values.Where(project =>
+                     project.Name.StartsWith("DynamicUI24.Template.", StringComparison.Ordinal)))
+        {
+            Assert.DoesNotContain(ReadTypeNamespaces(template.Name), value =>
+                value.Contains("ApplicationMenu", StringComparison.Ordinal));
+        }
+    }
+
+    [Fact]
+    public void ApplicationMenuFrameworkHasNoAuthenticationOrLicenseEnforcementBackend()
+    {
+        foreach (var projectName in new[] { "DynamicUI24.Core", "DynamicUI24.Avalonia" })
+        {
+            Assert.DoesNotContain(ReadTypeNamespaces(projectName), value =>
+                value.Contains("Authentication", StringComparison.OrdinalIgnoreCase) ||
+                value.Contains("LicenseEnforcement", StringComparison.OrdinalIgnoreCase) ||
+                value.Contains("EntitlementGuard", StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    [Fact]
     public void RepositoryContainsNoOwnerAccountBrandingOutsideRepositoryUrls()
     {
         var ownerAccount = "\u0067oldencad";

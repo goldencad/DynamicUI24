@@ -31,6 +31,16 @@ public static class StandardIconKeys
     public static IconKey Info { get; } = new("INFO");
     public static IconKey Success { get; } = new("SUCCESS");
     public static IconKey Formula { get; } = new("FORMULA");
+    public static IconKey Application { get; } = new("APPLICATION");
+    public static IconKey Company { get; } = new("COMPANY");
+    public static IconKey SwitchCompany { get; } = new("SWITCH_COMPANY");
+    public static IconKey Profile { get; } = new("PROFILE");
+    public static IconKey Language { get; } = new("LANGUAGE");
+    public static IconKey Appearance { get; } = new("APPEARANCE");
+    public static IconKey Account { get; } = new("ACCOUNT");
+    public static IconKey License { get; } = new("LICENSE");
+    public static IconKey About { get; } = new("ABOUT");
+    public static IconKey Exit { get; } = new("EXIT");
 }
 
 /// <summary>Portable SVG path payload resolved from a semantic key.</summary>

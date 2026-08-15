@@ -44,5 +44,15 @@ public sealed class SemanticIconRegistry : IIconRegistry
         Register(new(StandardIconKeys.Info, "M12,3 A9,9 0 1 0 12,21 A9,9 0 1 0 12,3 M12,10 L12,17 M12,7 L12,7.1"));
         Register(new(StandardIconKeys.Success, "M3,12 L9,18 L21,5"));
         Register(new(StandardIconKeys.Formula, "M18,5 L9,5 L6,12 L3,19 M6,12 L14,12 M15,16 L21,16 M18,13 L18,19"));
+        Register(new(StandardIconKeys.Application, "M4,4 L20,4 L20,20 L4,20 Z"));
+        Register(new(StandardIconKeys.Company, "M4,20 L4,7 L12,3 L20,7 L20,20 M8,20 L8,15 L16,15 L16,20"));
+        Register(new(StandardIconKeys.SwitchCompany, "M4,8 L18,8 M15,5 L18,8 L15,11 M20,16 L6,16 M9,13 L6,16 L9,19"));
+        Register(new(StandardIconKeys.Profile, "M12,3 A4,4 0 1 0 12,11 A4,4 0 1 0 12,3 M4,21 C4,15 20,15 20,21"));
+        Register(new(StandardIconKeys.Language, "M12,3 A9,9 0 1 0 12,21 A9,9 0 1 0 12,3 M3,12 L21,12 M12,3 C8,8 8,16 12,21 M12,3 C16,8 16,16 12,21"));
+        Register(new(StandardIconKeys.Appearance, "M12,3 A9,9 0 1 0 12,21 C14,21 15,19 14,17 C13,15 15,14 18,14 C20,14 21,12 21,10 C20,6 16,3 12,3"));
+        Register(new(StandardIconKeys.Account, "M12,4 A4,4 0 1 0 12,12 A4,4 0 1 0 12,4 M4,21 C4,15 20,15 20,21"));
+        Register(new(StandardIconKeys.License, "M5,4 L19,4 L19,20 L12,17 L5,20 Z M8,9 L16,9 M8,13 L14,13"));
+        Register(new(StandardIconKeys.About, "M12,3 A9,9 0 1 0 12,21 A9,9 0 1 0 12,3 M12,10 L12,17 M12,7 L12,7.1"));
+        Register(new(StandardIconKeys.Exit, "M10,4 L4,4 L4,20 L10,20 M14,8 L20,12 L14,16 M20,12 L8,12"));
     }
 }

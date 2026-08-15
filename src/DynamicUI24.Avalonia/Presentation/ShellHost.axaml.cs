@@ -2,6 +2,8 @@ using System.ComponentModel;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Media;
+using Avalonia.Input;
+using Avalonia.Automation;
 using DynamicUI24.Shared.Presentation;
 
 namespace DynamicUI24.Avalonia.Presentation;
@@ -38,12 +40,41 @@ public sealed partial class ShellHost : UserControl
         presentation.PropertyChanged += PresentationChanged;
         localization.CultureChanged += LocalizationChanged;
         RefreshText();
+        KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Escape && ApplicationMenuOverlay.IsVisible)
+            {
+                IsApplicationMenuOpen = false;
+                e.Handled = true;
+            }
+        };
     }
 
     public Control? WorkspaceContent
     {
         get => WorkspacePresenter.Content as Control;
         set => WorkspacePresenter.Content = value;
+    }
+
+    public Control? ApplicationMenuContent
+    {
+        get => ApplicationMenuPresenter.Content as Control;
+        set
+        {
+            if (ApplicationMenuPresenter.Content is ApplicationMenuView oldView) oldView.CloseRequested -= MenuCloseRequested;
+            ApplicationMenuPresenter.Content = value;
+            if (value is ApplicationMenuView newView) newView.CloseRequested += MenuCloseRequested;
+        }
+    }
+
+    public bool IsApplicationMenuOpen
+    {
+        get => ApplicationMenuOverlay.IsVisible;
+        set
+        {
+            ApplicationMenuOverlay.IsVisible = value;
+            if (value) ApplicationMenuContent?.Focus();
+        }
     }
 
     private void PresentationChanged(object? sender, PropertyChangedEventArgs e) => RefreshText();
@@ -55,9 +86,12 @@ public sealed partial class ShellHost : UserControl
         WorkspaceTitleText.Text = presentation.CurrentWorkspaceTitle ?? string.Empty;
         StatusText.Text = presentation.StatusMessage ?? localization.Get(presentation.State.MessageKey);
         ExitButton.Content = localization.Get(new LocalizationKey("Shell.Exit"));
+        AutomationProperties.SetName(ApplicationMenuButton, localization.Get(new LocalizationKey("AppMenu.Open")));
     }
 
     private void ExitClicked(object? sender, RoutedEventArgs e) => exitService.RequestExit();
+    private void ApplicationMenuClicked(object? sender, RoutedEventArgs e) => IsApplicationMenuOpen = !IsApplicationMenuOpen;
+    private void MenuCloseRequested(object? sender, EventArgs e) => IsApplicationMenuOpen = false;
 
     private sealed class NoOpExitService : IApplicationExitService
     {

@@ -8,11 +8,11 @@
               BorderBrush="{DynamicResource DuiBorderBrush}"
               BorderThickness="0,0,0,1">
         <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
-          <Border Width="34" Height="34" CornerRadius="8"
-                  Background="{DynamicResource DuiAccentBrush}">
+          <Button x:Name="ApplicationMenuButton" Width="44" Height="38" Padding="5"
+                  Click="ApplicationMenuClicked">
             <PathIcon x:Name="LogoIcon" Width="20" Height="20"
-                      Foreground="{DynamicResource DuiAccentTextBrush}" />
-          </Border>
+                      Foreground="{DynamicResource DuiAccentBrush}" />
+          </Button>
           <StackPanel Grid.Column="1" VerticalAlignment="Center">
             <TextBlock x:Name="ApplicationNameText" FontSize="19" FontWeight="SemiBold"
                        Foreground="{DynamicResource DuiTextBrush}" />
@@ -23,6 +23,11 @@
         </Grid>
       </Border>
       <ContentControl Grid.Row="1" x:Name="WorkspacePresenter" Margin="18" />
+      <Border Grid.Row="1" x:Name="ApplicationMenuOverlay" IsVisible="False"
+              Background="{DynamicResource DuiSurfaceBrush}"
+              BorderBrush="{DynamicResource DuiBorderBrush}" BorderThickness="0,0,0,1">
+        <ContentControl x:Name="ApplicationMenuPresenter" />
+      </Border>
       <Border Grid.Row="2" Padding="18,8"
               Background="{DynamicResource DuiSurfaceRaisedBrush}"
               BorderBrush="{DynamicResource DuiBorderBrush}"

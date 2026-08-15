@@ -8,6 +8,7 @@ using DynamicUI24.Avalonia.Presentation;
 using DynamicUI24.Core.Authorization;
 using DynamicUI24.Core.Companies;
 using DynamicUI24.Core.Workspaces;
+using DynamicUI24.Core.ApplicationMenu;
 using DynamicUI24.Shared.Presentation;
 
 namespace DynamicUI24.Demo;
@@ -73,11 +74,27 @@ public sealed partial class MainWindow : Window
         stateView = new SharedStateView(localization, iconRegistry);
 
         var lifetime = (IClassicDesktopStyleApplicationLifetime)Application.Current!.ApplicationLifetime!;
+        var exitService = new AvaloniaApplicationExitService(lifetime);
         var shell = new ShellHost(
             shellPresentation,
             localization,
             iconRegistry,
-            new AvaloniaApplicationExitService(lifetime));
+            exitService);
+        var menuComposer = new ApplicationMenuComposer();
+        menuComposer.Register(new DemoPreferencesContributor());
+        shell.ApplicationMenuContent = new ApplicationMenuView(
+            shellPresentation.Brand,
+            menuComposer,
+            localization,
+            iconRegistry,
+            themeService,
+            new AppearancePreferenceService(),
+            new DemoLayoutResetService(),
+            exitService,
+            companyContext,
+            companyScope,
+            new DemoAccountPresentationProvider(),
+            new DemoLicensePresentationProvider());
         shell.WorkspaceContent = BuildDemoSurface();
         ShellContainer.Content = shell;
 
@@ -364,6 +381,11 @@ public sealed partial class MainWindow : Window
         registry.Register(new IconDefinition(new IconKey("DEMO_SPARK"),
             "M12,2 L14,9 L22,12 L14,15 L12,22 L10,15 L2,12 L10,9 Z"));
         return registry;
+    }
+
+    private sealed class DemoLayoutResetService : ILayoutResetService
+    {
+        public Task ResetAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 
     private void StartSmokeRun(object? sender, EventArgs e)
