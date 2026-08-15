@@ -1,9 +1,9 @@
 # TS24 Dynamic UI Framework — Specification v0.8
 
-**Status:** Draft  
-**Version:** 0.8  
-**Initial Consumer:** PayCalc24  
-**Purpose:** Reusable dynamic UI framework for TS24 desktop applications built on Avalonia/Actipro.  
+**Status:** Draft
+**Version:** 0.8
+**Initial Consumer:** PayCalc24
+**Purpose:** Reusable dynamic UI framework for TS24 desktop applications built on Avalonia/Actipro.
 **Source context:** PayCalc24 product requirements and the UI architecture decisions derived from them.
 
 
