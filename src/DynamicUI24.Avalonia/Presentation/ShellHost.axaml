@@ -2,7 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="DynamicUI24.Avalonia.Presentation.ShellHost">
   <Border Background="{DynamicResource DuiSurfaceBrush}">
-    <Grid RowDefinitions="Auto,Auto,*,Auto">
+    <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
       <Border Padding="18,12"
               Background="{DynamicResource DuiSurfaceRaisedBrush}"
               BorderBrush="{DynamicResource DuiBorderBrush}"
@@ -23,7 +23,8 @@
         </Grid>
       </Border>
       <ContentControl Grid.Row="1" x:Name="RibbonPresenter" />
-      <Grid Grid.Row="2" ColumnDefinitions="260,5,*">
+      <ContentControl Grid.Row="2" x:Name="NotificationPresenter" />
+      <Grid Grid.Row="3" ColumnDefinitions="260,5,*">
         <Border Grid.Column="0" Background="{DynamicResource DuiSurfaceRaisedBrush}"
                 BorderBrush="{DynamicResource DuiBorderBrush}" BorderThickness="0,0,1,0">
           <ContentControl x:Name="NavigationPresenter" />
@@ -31,12 +32,12 @@
         <GridSplitter Grid.Column="1" ResizeDirection="Columns" Background="{DynamicResource DuiBorderBrush}" />
         <ContentControl Grid.Column="2" x:Name="WorkspacePresenter" Margin="18" />
       </Grid>
-      <Border Grid.Row="2" x:Name="ApplicationMenuOverlay" IsVisible="False"
+      <Border Grid.Row="3" x:Name="ApplicationMenuOverlay" IsVisible="False"
               Background="{DynamicResource DuiSurfaceBrush}"
               BorderBrush="{DynamicResource DuiBorderBrush}" BorderThickness="0,0,0,1">
         <ContentControl x:Name="ApplicationMenuPresenter" />
       </Border>
-      <Border Grid.Row="3" Padding="18,8"
+      <Border Grid.Row="4" Padding="18,8"
               Background="{DynamicResource DuiSurfaceRaisedBrush}"
               BorderBrush="{DynamicResource DuiBorderBrush}"
               BorderThickness="0,1,0,0">

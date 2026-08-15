@@ -11,6 +11,7 @@ using DynamicUI24.Core.ActionBars;
 using DynamicUI24.Core.Companies;
 using DynamicUI24.Core.Workspaces;
 using DynamicUI24.Core.Navigation;
+using DynamicUI24.Core.Notifications;
 using DynamicUI24.Core.ApplicationMenu;
 using DynamicUI24.Core.Ribbon;
 using DynamicUI24.Core.Templates;
@@ -40,8 +41,14 @@ public sealed partial class MainWindow : Window
     private readonly DynamicActionBarResolver actionBarResolver = new();
     private readonly WorkspaceActionBarDefinitions actionBarDefinitions = DemoActionBars.Create();
     private readonly WorkspaceNavigationService workspaceNavigation;
+    private readonly ActionCommandRegistry actionCommands;
+    private readonly ActionBarCommandDispatcher actionDispatcher;
     private readonly DynamicActionBarHost topActionBar;
     private readonly DynamicActionBarHost bottomActionBar;
+    private readonly NotificationCoordinator notificationCoordinator;
+    private readonly NotificationActionBarAdapter notificationActionBars = new();
+    private readonly NotificationActionDispatcher notificationDispatcher;
+    private readonly NotificationHost notificationHost;
     private readonly TreeDefinition treeDefinition = DemoTree.Create();
     private readonly ComboBox workspaceSelector = new();
     private readonly ComboBox themeSelector = new();
@@ -136,17 +143,29 @@ public sealed partial class MainWindow : Window
             new DemoRibbonNavigationService(workspaces, NavigateFromRibbon),
             new DemoRibbonRefreshService(RefreshFromRibbon),
             commandRegistry);
-        var actionCommands = new ActionCommandRegistry();
+        actionCommands = new ActionCommandRegistry();
         actionCommands.Register("DEMO.ACTION.CUSTOM", (_, _) =>
             Task.FromResult(ActionCommandResult.Success("Custom registered Action Bar command dispatched.")));
         actionCommands.Register("DEMO.ACTION.GATED", (_, _) =>
             Task.FromResult(ActionCommandResult.Success("Permission-gated Action Bar command dispatched.")));
-        var actionDispatcher = new ActionBarCommandDispatcher(
+        actionCommands.Register("DEMO.UPDATE_AND_RESTART", (_, _) =>
+            Task.FromResult(ActionCommandResult.Success("Update-ready guidance command dispatched; no updater was run.")));
+        actionDispatcher = new ActionBarCommandDispatcher(
             workspaceNavigation, new DemoActionRefreshService(RefreshFromActionBar), actionCommands);
         topActionBar = new DynamicActionBarHost(actionDispatcher, localization, iconRegistry, appearanceService);
         bottomActionBar = new DynamicActionBarHost(actionDispatcher, localization, iconRegistry, appearanceService);
         topActionBar.CommandCompleted += ActionBarCommandCompleted;
         bottomActionBar.CommandCompleted += ActionBarCommandCompleted;
+        notificationCoordinator = new NotificationCoordinator(
+            [new DemoNotificationProvider(), new ThrowingNotificationProvider()]);
+        notificationDispatcher = new NotificationActionDispatcher(workspaceNavigation, actionCommands,
+            () => new ActionCommandExecutionContext(CreateActionBarContext(workspaceHost.CurrentDefinition ?? workspaces[0])),
+            new DemoFocusTargetService(), new DemoNotificationMenuService());
+        notificationHost = new NotificationHost(notificationCoordinator, notificationDispatcher, localization, iconRegistry);
+        shell.NotificationContent = notificationHost;
+        notificationHost.ActionCompleted += (_, result) =>
+            shellPresentation.StatusMessage = $"Notification: {result.Status} · {result.DiagnosticCode ?? "OK"}";
+        notificationCoordinator.Changed += (_, _) => Dispatcher.UIThread.Post(RefreshActionBars);
         ribbonHost = new DynamicRibbonHost(
             DemoRibbon.Create(), workspaces, CreateRibbonContext(workspaces[0]),
             new DynamicRibbonResolver(), dispatcher, localization, iconRegistry);
@@ -387,6 +406,7 @@ public sealed partial class MainWindow : Window
         RefreshActionBars();
         RefreshTree(snapshot);
         setupWorkspaceHost.UpdateContext(snapshot.Company, snapshot.AuthorizationContext);
+        _ = RefreshNotificationsAsync();
     }
 
     private void RefreshRequirementResolution()
@@ -417,6 +437,7 @@ public sealed partial class MainWindow : Window
         RefreshRibbon();
         RefreshActionBars();
         treeHost.SelectWorkspace(definition.WorkspaceId);
+        _ = RefreshNotificationsAsync();
     }
 
     private void SetPresentationState()
@@ -501,8 +522,28 @@ public sealed partial class MainWindow : Window
         }
         var context = CreateActionBarContext(workspace);
         var bars = actionBarDefinitions.ForWorkspace(workspace.WorkspaceId);
-        ShowActionBar(topActionBar, bars.FirstOrDefault(x => x.Position == ActionBarPosition.Top), context);
-        ShowActionBar(bottomActionBar, bars.FirstOrDefault(x => x.Position == ActionBarPosition.Bottom), context);
+        var notificationTop = notificationActionBars.Create(NotificationSurface.TopActionBar,
+            notificationCoordinator.Current.ForSurface(NotificationSurface.TopActionBar));
+        var notificationBottom = notificationActionBars.Create(NotificationSurface.BottomActionBar,
+            notificationCoordinator.Current.ForSurface(NotificationSurface.BottomActionBar));
+        ShowActionBar(topActionBar, MergeActionBars(ActionBarPosition.Top,
+            bars.FirstOrDefault(x => x.Position == ActionBarPosition.Top), notificationTop), context);
+        ShowActionBar(bottomActionBar, MergeActionBars(ActionBarPosition.Bottom,
+            bars.FirstOrDefault(x => x.Position == ActionBarPosition.Bottom), notificationBottom), context);
+    }
+
+    private static ActionBarDefinition? MergeActionBars(ActionBarPosition position, ActionBarDefinition? workspace,
+        ActionBarDefinition notifications)
+    {
+        var actions = (workspace?.Actions ?? []).Concat(notifications.Actions).ToArray();
+        return actions.Length == 0 ? null : new ActionBarDefinition($"combined-{position}", $"COMBINED_{position}", position, actions);
+    }
+
+    private async Task RefreshNotificationsAsync()
+    {
+        var workspaceId = workspaceHost.CurrentDefinition?.WorkspaceId;
+        await notificationCoordinator.RefreshAsync(companyContext.CurrentCompany, workspaceId,
+            companyScope.Snapshot.AuthorizationContext);
     }
 
     private void ShowActionBar(DynamicActionBarHost host, ActionBarDefinition? definition,
@@ -716,6 +757,7 @@ public sealed partial class MainWindow : Window
                 smokeTimer!.Stop();
                 await RunRibbonSmokeAsync();
                 await RunActionBarSmokeAsync();
+                await RunNotificationSmokeAsync();
                 await RunSetupSmokeAsync();
                 Console.WriteLine("SMOKE CLEAN_EXIT: PASS");
                 Close();
@@ -849,11 +891,95 @@ public sealed partial class MainWindow : Window
     private static ResolvedAction ActionBarAction(DynamicActionBarHost host, string actionCode) =>
         host.ResolvedActionBar!.Actions.Single(x => x.Definition.ActionCode == actionCode);
 
+    private async Task RunNotificationSmokeAsync()
+    {
+        await companyScope.SwitchCompanyAsync(DemoCompanyData.CompanyAId);
+        workspaceSelector.SelectedIndex = workspaces.ToList().FindIndex(x => x.WorkspaceId == "data-entry-demo");
+        var model = await notificationCoordinator.RefreshAsync(companyContext.CurrentCompany, "data-entry-demo",
+            companyScope.Snapshot.AuthorizationContext);
+        var update = AssertSingle("DEMO.UPDATE_READY", model);
+        if (update.Surfaces.Length != 4 || update.Instance.CurrentProgress?.CurrentValue != 75 ||
+            model.ForSurface(NotificationSurface.Toast).Length == 0 ||
+            model.ForSurface(NotificationSurface.Banner).Length == 0 ||
+            model.ForSurface(NotificationSurface.AlertCard).Length == 0 ||
+            model.ForSurface(NotificationSurface.BlockingNotice).Length == 0 ||
+            model.AttentionCount == 0 || !notificationHost.IsVisible)
+            throw new InvalidOperationException("Notification surfaces, progress, or attention count were not rendered.");
+        notificationHost.IsCenterOpen = true;
+        if (!notificationHost.IsCenterOpen || notificationHost.AttentionCount != model.AttentionCount)
+            throw new InvalidOperationException("Notification Center did not open or show its attention count.");
+        RefreshActionBars();
+        if (!topActionBar.ResolvedActionBar!.Actions.Any(x => x.Definition.ActionCode == "UPDATE_RESTART") ||
+            !bottomActionBar.ResolvedActionBar!.Actions.Any(x => x.Definition.ActionCode == "UPDATE_RESTART"))
+            throw new InvalidOperationException("Multi-surface notification did not contribute to both Action Bars.");
+        var updateCommand = await topActionBar.ExecuteActionAsync("UPDATE_RESTART");
+        if (updateCommand.Status != ActionCommandResultStatus.Success)
+            throw new InvalidOperationException("Update presentation command did not use the registered command pipeline.");
+        Console.WriteLine("SMOKE NOTIFICATION_SURFACES: CENTER TOAST BANNER ALERT BLOCKING TOP BOTTOM PASS");
+        Console.WriteLine("SMOKE NOTIFICATION_MULTI_SURFACE: ONE_INSTANCE PROGRESS=75/100 PASS");
+
+        var configuration = AssertSingle("DEMO.CONFIG", model);
+        var navigate = await notificationDispatcher.DispatchAsync(configuration.PrimaryAction!);
+        if (navigate.Status != GuidanceActionResultStatus.Success || workspaceHost.CurrentDefinition?.WorkspaceId != "setup-demo" ||
+            treeHost.SelectedNodeId is null)
+            throw new InvalidOperationException("Guidance navigation did not synchronize workspace/tree context.");
+        RefreshRibbon(); RefreshActionBars();
+        Console.WriteLine("SMOKE NOTIFICATION_NAVIGATE_TREE_RIBBON_ACTIONBAR: PASS");
+
+        var unknownWorkspace = await notificationDispatcher.DispatchAsync(AssertSingle("DEMO.UNKNOWN_WORKSPACE", model).PrimaryAction!);
+        var unknownCommand = await notificationDispatcher.DispatchAsync(AssertSingle("DEMO.UNKNOWN_COMMAND", model).PrimaryAction!);
+        var unknownFocus = await notificationDispatcher.DispatchAsync(AssertSingle("DEMO.UNKNOWN_FOCUS", model).PrimaryAction!);
+        if (unknownWorkspace.Status != GuidanceActionResultStatus.Unavailable ||
+            unknownCommand.Status != GuidanceActionResultStatus.Unavailable ||
+            unknownFocus.Status != GuidanceActionResultStatus.PartialSuccess)
+            throw new InvalidOperationException("Unknown notification guidance target did not fail safely.");
+        Console.WriteLine("SMOKE NOTIFICATION_UNKNOWN_WORKSPACE_COMMAND_FOCUS: SAFE_FAILURE");
+
+        if (!model.Diagnostics.Any(x => x.Code == "NOTIFICATION_PROVIDER_FAILED") ||
+            model.Notifications.Any(x => x.Instance.Definition.NotificationCode is "DEMO.EXPIRED" or "DEMO.RESOLVED"))
+            throw new InvalidOperationException("Provider isolation, expiration, or resolution failed.");
+        if (notificationCoordinator.Dismiss(AssertSingle("DEMO.BLOCKING", model).Instance.InstanceId))
+            throw new InvalidOperationException("Non-dismissible blocking notice was dismissed.");
+        if (!notificationCoordinator.Dismiss(configuration.Instance.InstanceId) ||
+            notificationCoordinator.Current.Notifications.Any(x => x.Instance.Definition.NotificationCode == "DEMO.CONFIG"))
+            throw new InvalidOperationException("Shared notification dismissal failed.");
+        Console.WriteLine("SMOKE NOTIFICATION_PROVIDER_LIFECYCLE_DISMISS: PASS");
+
+        await companyScope.SwitchCompanyAsync(DemoCompanyData.CompanyBId);
+        model = await notificationCoordinator.RefreshAsync(companyContext.CurrentCompany, "setup-demo",
+            companyScope.Snapshot.AuthorizationContext);
+        if (model.Notifications.Any(x => x.Instance.Definition.NotificationCode == "DEMO.COMPANY") ||
+            !model.Notifications.Any(x => x.Instance.Definition.NotificationCode == "DEMO.UPDATE_READY"))
+            throw new InvalidOperationException("Company stale-state guard or global notification preservation failed.");
+        await companyScope.SwitchCompanyAsync(DemoCompanyData.CompanyAId);
+        model = await notificationCoordinator.RefreshAsync(companyContext.CurrentCompany, "setup-demo",
+            companyScope.Snapshot.AuthorizationContext);
+        if (!model.Notifications.Any(x => x.Instance.Definition.NotificationCode == "DEMO.COMPANY"))
+            throw new InvalidOperationException("Company-scoped notification did not re-resolve on return.");
+        Console.WriteLine("SMOKE NOTIFICATION_COMPANY: A_TO_B_BLOCKED GLOBAL_PRESERVED A_RERESOLVED");
+
+        var instanceId = AssertSingle("DEMO.UPDATE_READY", model).Instance.InstanceId;
+        localization.TrySetCulture("vi-VN"); themeSelector.SelectedItem = ThemeMode.System;
+        localization.TrySetCulture("en-US"); themeSelector.SelectedItem = ThemeMode.Light;
+        themeSelector.SelectedItem = ThemeMode.Dark;
+        var preserved = AssertSingle("DEMO.UPDATE_READY", notificationCoordinator.Current);
+        if (preserved.Instance.InstanceId != instanceId || preserved.Instance.CurrentProgress?.CurrentValue != 75)
+            throw new InvalidOperationException("Localization/theme changes replaced notification runtime state.");
+        Console.WriteLine("SMOKE NOTIFICATION_VI_EN_SYSTEM_LIGHT_DARK: STATE_PRESERVED");
+        Console.WriteLine("SMOKE NOTIFICATION_UPDATE_PRESENTATION_ONLY: REGISTERED_COMMAND PASS NO_UPDATER");
+    }
+
+    private static ResolvedNotification AssertSingle(string notificationCode, NotificationPresentationModel model) =>
+        model.Notifications.Single(x => x.Instance.Definition.NotificationCode == notificationCode);
+
     private async Task RunSetupSmokeAsync()
     {
         await companyScope.SwitchCompanyAsync(DemoCompanyData.CompanyAId);
         setupWorkspaceHost.UpdateContext(companyScope.Snapshot.Company, companyScope.Snapshot.AuthorizationContext);
-        workspaceSelector.SelectedIndex = workspaces.ToList().FindIndex(x => x.WorkspaceId == "setup-demo");
+        var setupIndex = workspaces.ToList().FindIndex(x => x.WorkspaceId == "setup-demo");
+        workspaceSelector.SelectedIndex = setupIndex;
+        if (workspaceHost.CurrentDefinition?.WorkspaceId != "setup-demo" || workspaceHost.Content != setupWorkspaceHost)
+            workspaceHost.ShowWorkspace(workspaces[setupIndex]);
         if (workspaceHost.Content != setupWorkspaceHost ||
             !new[] { "GENERAL", "MASTER_CATALOGS", "WORKSPACES", "COLUMNS_VARIABLES", "NAVIGATION_TREE", "RIBBON", "ACTION_BARS", "DASHBOARD", "REPORTS" }
                 .All(setupWorkspaceHost.VisibleCategoryCodes.Contains) ||

@@ -70,6 +70,13 @@ public sealed partial class ShellHost : UserControl
         set => RibbonPresenter.Content = value;
     }
 
+    /// <summary>Shared shell-owned notification and guidance region.</summary>
+    public Control? NotificationContent
+    {
+        get => NotificationPresenter.Content as Control;
+        set => NotificationPresenter.Content = value;
+    }
+
     public Control? ApplicationMenuContent
     {
         get => ApplicationMenuPresenter.Content as Control;
