@@ -12,5 +12,11 @@
     <ProjectReference Include="../../src/DynamicUI24.Core/DynamicUI24.Core.csproj" />
     <ProjectReference Include="../../src/DynamicUI24.Shared/DynamicUI24.Shared.csproj" />
     <ProjectReference Include="../../src/DynamicUI24.Avalonia/DynamicUI24.Avalonia.csproj" />
+    <ProjectReference Include="../../src/Templates/DynamicUI24.Template.Setup/DynamicUI24.Template.Setup.csproj" />
+    <ProjectReference Include="../../src/Templates/DynamicUI24.Template.DataEntry/DynamicUI24.Template.DataEntry.csproj" />
+    <ProjectReference Include="../../src/Templates/DynamicUI24.Template.Report/DynamicUI24.Template.Report.csproj" />
+    <ProjectReference Include="../../src/Templates/DynamicUI24.Template.HistoryDocument/DynamicUI24.Template.HistoryDocument.csproj" />
+    <ProjectReference Include="../../src/Templates/DynamicUI24.Template.Dashboard/DynamicUI24.Template.Dashboard.csproj" />
+    <ProjectReference Include="../../src/Templates/DynamicUI24.Template.Signing/DynamicUI24.Template.Signing.csproj" />
   </ItemGroup>
 </Project>

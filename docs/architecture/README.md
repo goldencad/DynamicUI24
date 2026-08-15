@@ -10,3 +10,5 @@ DynamicUI24 is split into independently maintainable framework modules.
 - `DynamicUI24.Demo` is a consumer; no framework project may reference it.
 
 Architecture tests inspect project-reference graphs and compiled assembly metadata to enforce these boundaries. DynamicUI24 never depends on PayCalc24 or another consumer application.
+
+The Task 1 modular flow is documented in the [template contract](TEMPLATE-CONTRACT.md), [template registry](TEMPLATE-REGISTRY.md), and [module dependency rules](MODULE-DEPENDENCIES.md).

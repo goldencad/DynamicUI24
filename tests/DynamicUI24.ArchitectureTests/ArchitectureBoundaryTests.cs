@@ -70,6 +70,23 @@ public sealed class ArchitectureBoundaryTests
     }
 
     [Fact]
+    public void GenericWorkspaceHostCannotReferenceConcreteTemplateModules()
+    {
+        foreach (var projectName in new[] { "DynamicUI24.Core", "DynamicUI24.Avalonia" })
+        {
+            AssertProjectAndAssemblyReferencesExclude(projectName, static name =>
+                name.StartsWith("DynamicUI24.Template.", StringComparison.Ordinal));
+        }
+    }
+
+    [Fact]
+    public void RegistryAssemblyCannotReferenceConsumerApplications()
+    {
+        AssertProjectAndAssemblyReferencesExclude("DynamicUI24.Core", static name =>
+            name.Equals("DynamicUI24.Demo", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void ConsumerSpecificNamespacesAreAbsentFromFrameworkAssemblies()
     {
         foreach (var project in FrameworkProjects())

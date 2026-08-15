@@ -2,7 +2,7 @@
 
 DynamicUI24 is a reusable metadata-driven UI framework for cross-platform .NET/Avalonia business applications.
 
-This repository currently contains the .NET 9 solution structure, module boundaries, build/test infrastructure, a minimal Avalonia host, and CI baseline. Framework behavior will be introduced in later tasks.
+This repository contains the .NET 9 solution structure, enforced module boundaries, a modular template registration/resolution foundation, and a minimal Avalonia proof host. Business UI behavior is intentionally deferred to later tasks.
 
 PayCalc24 is a future consumer/reference implementation, not a dependency.
 
