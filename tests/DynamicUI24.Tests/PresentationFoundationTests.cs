@@ -144,6 +144,19 @@ public sealed class IconRegistryTests
         Assert.True(first.IsFallback);
         Assert.Same(first, second);
     }
+
+    [Fact]
+    public void RegistrySupportsSvgResourcesAndFontGlyphSourcesBehindIconKey()
+    {
+        var registry = new SemanticIconRegistry();
+        var svg = new IconDefinition(new("SVG_RESOURCE"), new SvgIconSource("M1,1 L9,9", "icons/sample.svg"));
+        var glyph = new IconDefinition(new("FONT_GLYPH"), new FontGlyphIconSource("★", ".AppleSystemUIFont"));
+        registry.Register(svg);
+        registry.Register(glyph);
+        Assert.Equal("icons/sample.svg", Assert.IsType<SvgIconSource>(registry.Resolve(new("SVG_RESOURCE")).Source).ResourceName);
+        Assert.Equal("★", Assert.IsType<FontGlyphIconSource>(registry.Resolve(new("FONT_GLYPH")).Source).Glyph);
+        Assert.Empty(registry.Resolve(new("FONT_GLYPH")).SvgPathData);
+    }
 }
 
 public sealed class PresentationStateTests

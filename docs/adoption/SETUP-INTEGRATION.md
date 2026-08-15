@@ -1,5 +1,7 @@
 # Setup integration
 
+Setup follows the shared [split layout](../design-system/SPLIT-NAVIGATION-LAYOUT.md), [tree](../design-system/TREE-NAVIGATION.md), [button](../design-system/BUTTONS.md), [icon](../design-system/ICONS.md), and [token](../design-system/TOKENS.md) standards.
+
 At application composition, provide categories, an `ISetupDefinitionProvider`, an `ISetupDefinitionValidator`, editor registrations, current Company/authorization context, localization, and semantic icon registry to `SetupWorkspaceHost`. Register the host as the view factory for `StandardTemplateCodes.Setup`.
 
 Re-resolve the host when Company or effective authorization changes. `ScopeKey` is opaque framework metadata: the consuming provider owns whether definitions are global or Company-scoped. An unavailable authorization context is intentionally fail-closed.

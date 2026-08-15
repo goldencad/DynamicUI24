@@ -23,3 +23,10 @@ dotnet test DynamicUI24.slnx -c Release --no-build
 - `tests/` — foundational and executable architecture tests.
 - `benchmarks/` — benchmark harness for later performance work.
 - `docs/` — specification and concise architecture/adoption guidance.
+
+## Documentation
+
+- [Shared UI/UX design system](docs/design-system/OVERVIEW.md)
+- [Architecture index](docs/architecture/README.md)
+- [Adoption index](docs/adoption/README.md)
+- [Template guidance](docs/templates/README.md)

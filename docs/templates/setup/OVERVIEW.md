@@ -1,5 +1,7 @@
 # Dynamic Setup foundation
 
+Setup conforms to the reusable [DynamicUI24 design system](../../design-system/OVERVIEW.md); it does not own separate tree, action, icon, token, or split-layout rules.
+
 `DynamicSetupTemplate` is the reusable configuration workspace for metadata-defined applications. Its internal category tree is separate from the global application tree. A category selects a management list; a definition selection resolves an editor through a registry and opens an isolated candidate buffer.
 
 Task 8 is a foundation, not a collection of complete designers. Columns/Variables, Navigation Tree, Ribbon, Action Bars, Dashboard, and Reports deliberately resolve to a localized unavailable state until later modules register their editors.

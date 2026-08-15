@@ -262,6 +262,34 @@ public sealed class ArchitectureBoundaryTests
     }
 
     [Fact]
+    public void ActionGeometryAndIconSourcesPreserveSemanticMetadataBoundary()
+    {
+        var actionDirectory = Path.Combine(RepositoryRoot, "src", "DynamicUI24.Core", "ActionBars");
+        var actionSource = string.Join("\n", Directory.EnumerateFiles(actionDirectory, "*.cs").Select(File.ReadAllText));
+        var iconContract = File.ReadAllText(Path.Combine(RepositoryRoot, "src", "DynamicUI24.Shared", "Presentation", "IconKey.cs"));
+        Assert.Contains("ActionControlSizePreset", actionSource, StringComparison.Ordinal);
+        Assert.Contains("ActionControlGeometry", actionSource, StringComparison.Ordinal);
+        Assert.DoesNotContain(".svg", actionSource, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(".ttf", actionSource, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("SvgIconSource", iconContract, StringComparison.Ordinal);
+        Assert.Contains("FontGlyphIconSource", iconContract, StringComparison.Ordinal);
+        Assert.Contains("IIconRegistry", iconContract, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void SharedDesignSystemStandardsAreDiscoverable()
+    {
+        var directory = Path.Combine(RepositoryRoot, "docs", "design-system");
+        var required = new[] { "OVERVIEW.md", "BUTTONS.md", "ICONS.md", "TREE-NAVIGATION.md",
+            "SPLIT-NAVIGATION-LAYOUT.md", "TOKENS.md" };
+        Assert.All(required, file => Assert.True(File.Exists(Path.Combine(directory, file)), file));
+        var rootReadme = File.ReadAllText(Path.Combine(RepositoryRoot, "README.md"));
+        var overview = File.ReadAllText(Path.Combine(directory, "OVERVIEW.md"));
+        Assert.Contains("docs/design-system/OVERVIEW.md", rootReadme, StringComparison.Ordinal);
+        Assert.Contains("metadata, tokens, registries, providers, and extension points", overview, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void GlobalAndSetupTreesUseSharedTokenBasedRowInteraction()
     {
         var treeXaml = File.ReadAllText(Path.Combine(RepositoryRoot, "src", "DynamicUI24.Avalonia", "Presentation",

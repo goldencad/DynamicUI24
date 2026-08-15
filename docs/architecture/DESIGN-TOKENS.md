@@ -1,5 +1,7 @@
 # Design tokens
 
+The normative token, theme, typography, spacing, and global scaling rules are in the design-system [Tokens standard](../design-system/TOKENS.md).
+
 Semantic identities live in `DynamicUI24.Shared.Presentation.SemanticToken`. Avalonia
 values live only in `Presentation/DesignTokens.axaml` in `DynamicUI24.Avalonia`.
 

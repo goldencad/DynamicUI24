@@ -16,25 +16,32 @@ public sealed class DynamicActionBarHost : Border
     private readonly ActionBarCommandDispatcher dispatcher;
     private readonly ILocalizationService localization;
     private readonly IIconRegistry icons;
+    private readonly IAppearancePreferenceService appearance;
     private ResolvedActionBar? resolved;
     private ActionCommandExecutionContext? executionContext;
     private readonly Dictionary<string, MenuRuntime> menus = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, ResolvedActionGeometry> geometries = new(StringComparer.OrdinalIgnoreCase);
 
-    public DynamicActionBarHost(ActionBarCommandDispatcher dispatcher, ILocalizationService localization, IIconRegistry icons)
+    public DynamicActionBarHost(ActionBarCommandDispatcher dispatcher, ILocalizationService localization, IIconRegistry icons,
+        IAppearancePreferenceService? appearance = null)
     {
         this.dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         this.localization = localization ?? throw new ArgumentNullException(nameof(localization));
         this.icons = icons ?? throw new ArgumentNullException(nameof(icons));
+        this.appearance = appearance ?? new AppearancePreferenceService();
         Padding = new Thickness(8, 5);
         BorderThickness = new Thickness(0, 1);
         Bind(BackgroundProperty, this.GetResourceObservable("DuiSurfaceRaisedBrush"));
         Bind(BorderBrushProperty, this.GetResourceObservable("DuiBorderBrush"));
         localization.CultureChanged += (_, _) => Render();
+        this.appearance.PreferencesChanged += (_, _) => Render();
     }
 
     public ResolvedActionBar? ResolvedActionBar => resolved;
     public string? FocusedMenuItemCode { get; private set; }
     public bool LastMenuOpenUsedKeyboard { get; private set; }
+    public ResolvedActionGeometry? GetGeometry(string actionCode) =>
+        geometries.TryGetValue(actionCode, out var geometry) ? geometry : null;
     public event EventHandler<ActionCommandResult>? CommandCompleted;
 
     public void Show(ResolvedActionBar actionBar, ActionCommandExecutionContext context)
@@ -136,10 +143,13 @@ public sealed class DynamicActionBarHost : Border
         IsVisible = resolved.Definition.IsVisible;
         foreach (var menu in menus.Values) menu.Popup.IsOpen = false;
         menus.Clear();
+        geometries.Clear();
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
         foreach (var action in resolved.Actions)
         {
-            actions.Children.Add(CreateActionControl(action));
+            var control = CreateActionControl(action);
+            actions.Children.Add(control);
+            geometries[action.Definition.ActionCode] = ResolveGeometry(action.Definition.Geometry);
         }
 
         var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
@@ -170,14 +180,19 @@ public sealed class DynamicActionBarHost : Border
             ActionButtonVariant.SplitButton => CreateSplitButton(action),
             _ => CreateMainButton(action, false),
         };
+        if (definition.ButtonVariant == ActionButtonVariant.IconButton ||
+            definition.Geometry.IconPosition == ActionIconPosition.IconOnly)
+            ToolTip.SetTip(control, localization.Get(definition.DisplayNameKey));
         if (action.IsReadOnly) ToolTip.SetTip(control, localization.Get(new("State.ReadOnly")));
         return control;
     }
 
-    private Button CreateMainButton(ResolvedAction action, bool iconOnly)
+    private Button CreateMainButton(ResolvedAction action, bool iconOnly, bool applyBounds = true)
     {
-        var button = new Button { Content = CreateActionContent(action, iconOnly), IsEnabled = action.IsEnabled,
+        var geometry = ResolveGeometry(action.Definition.Geometry);
+        var button = new Button { Content = CreateActionContent(action, iconOnly, geometry: geometry), IsEnabled = action.IsEnabled,
             Tag = action.Definition.ActionCode };
+        ApplyGeometry(button, geometry, applyBounds);
         if (iconOnly) ToolTip.SetTip(button, localization.Get(action.Definition.DisplayNameKey));
         button.Click += async (_, _) => await ExecuteActionAsync(action.Definition.ActionCode);
         return button;
@@ -185,15 +200,19 @@ public sealed class DynamicActionBarHost : Border
 
     private ToggleButton CreateToggleButton(ResolvedAction action)
     {
-        var button = new ToggleButton { Content = CreateActionContent(action, false), IsEnabled = action.IsEnabled,
+        var geometry = ResolveGeometry(action.Definition.Geometry);
+        var button = new ToggleButton { Content = CreateActionContent(action, false, geometry: geometry), IsEnabled = action.IsEnabled,
             IsChecked = action.Definition.IsChecked };
+        ApplyGeometry(button, geometry);
         button.Click += async (_, _) => await ExecuteActionAsync(action.Definition.ActionCode);
         return button;
     }
 
     private Control CreateDropdownButton(ResolvedAction action)
     {
-        var button = new Button { Content = CreateActionContent(action, false, true), IsEnabled = action.IsEnabled };
+        var geometry = ResolveGeometry(action.Definition.Geometry);
+        var button = new Button { Content = CreateActionContent(action, false, true, geometry), IsEnabled = action.IsEnabled };
+        ApplyGeometry(button, geometry);
         button.Click += (_, _) => OpenMenu(action.Definition.ActionCode);
         button.KeyDown += (_, e) => { if (e.Key is Key.Down or Key.F4) { e.Handled = OpenMenu(action.Definition.ActionCode, true); } };
         var popup = RegisterMenu(action, button);
@@ -202,28 +221,41 @@ public sealed class DynamicActionBarHost : Border
 
     private Control CreateSplitButton(ResolvedAction action)
     {
-        var main = CreateMainButton(action, false);
-        var chevron = new Button { Content = "⌄", IsEnabled = action.IsEnabled, Padding = new Thickness(7, 0) };
+        var geometry = ResolveGeometry(action.Definition.Geometry);
+        var main = CreateMainButton(action, false, false);
+        var chevron = new Button { Content = "⌄", IsEnabled = action.IsEnabled,
+            Padding = new Thickness(Math.Max(4, geometry.Padding.Left / 2), 0), Height = geometry.Height,
+            FontSize = geometry.FontSize };
         chevron.Click += (_, _) => OpenMenu(action.Definition.ActionCode);
         chevron.KeyDown += (_, e) => { if (e.Key is Key.Down or Key.F4) { e.Handled = OpenMenu(action.Definition.ActionCode, true); } };
         var popup = RegisterMenu(action, chevron);
-        return new Grid { Children = { new StackPanel { Orientation = Orientation.Horizontal, Spacing = 1,
+        var wrapper = new Grid { Children = { new StackPanel { Orientation = Orientation.Horizontal, Spacing = 1,
             Children = { main, chevron } }, popup } };
+        ApplyGeometry(wrapper, geometry);
+        return wrapper;
     }
 
-    private Control CreateActionContent(ResolvedAction action, bool iconOnly, bool chevron = false)
+    private Control CreateActionContent(ResolvedAction action, bool iconOnly, bool chevron = false,
+        ResolvedActionGeometry? geometry = null)
     {
-        var icon = CreateIcon(action.Definition.IconKey, action.IsEnabled);
-        if (iconOnly) return icon;
-        var panel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6,
-            Children = { icon, new TextBlock { Text = localization.Get(action.Definition.DisplayNameKey), VerticalAlignment = VerticalAlignment.Center } } };
+        geometry ??= ResolveGeometry(action.Definition.Geometry);
+        var icon = CreateIcon(action.Definition.IconKey, action.IsEnabled, geometry.IconSize);
+        if (iconOnly || geometry.IconPosition == ActionIconPosition.IconOnly) return icon;
+        var label = new TextBlock { Text = localization.Get(action.Definition.DisplayNameKey),
+            VerticalAlignment = VerticalAlignment.Center, FontSize = geometry.FontSize };
+        var vertical = geometry.IconPosition is ActionIconPosition.Top or ActionIconPosition.Bottom;
+        var panel = new StackPanel { Orientation = vertical ? Orientation.Vertical : Orientation.Horizontal,
+            Spacing = geometry.Gap };
+        if (geometry.IconPosition is ActionIconPosition.Right or ActionIconPosition.Bottom)
+        { panel.Children.Add(label); panel.Children.Add(icon); }
+        else { panel.Children.Add(icon); panel.Children.Add(label); }
         if (chevron) panel.Children.Add(new TextBlock { Text = "⌄", VerticalAlignment = VerticalAlignment.Center });
         return panel;
     }
 
-    private SemanticIcon CreateIcon(IconKey key, bool enabled)
+    private SemanticIcon CreateIcon(IconKey key, bool enabled, double size = 16)
     {
-        var icon = new SemanticIcon { Width = 16, Height = 16 };
+        var icon = new SemanticIcon { Width = size, Height = size };
         icon.SetIcon(icons, key);
         var brush = executionContext!.ResolutionContext.PresentationState.Kind switch
         {
@@ -235,6 +267,33 @@ public sealed class DynamicActionBarHost : Border
         };
         icon.Bind(SemanticIcon.ForegroundProperty, icon.GetResourceObservable(brush));
         return icon;
+    }
+
+    private ResolvedActionGeometry ResolveGeometry(ActionControlGeometry geometry)
+    {
+        var preset = ActionControlTokenCatalog.Resolve(geometry.SizePreset);
+        var ui = appearance.Current.UiScale;
+        var fontPreference = appearance.Current.FontSize switch
+        { FontSizePreference.Small => .9, FontSizePreference.Large => 1.15, _ => 1d };
+        var typography = ActionControlTokenCatalog.Resolve(geometry.TypographyToken);
+        var padding = geometry.Padding ?? new ActionThickness(preset.PaddingHorizontal, preset.PaddingVertical);
+        return new(geometry.Width * ui, geometry.MinWidth * ui, geometry.MaxWidth * ui,
+            (geometry.Height ?? preset.Height) * ui, (geometry.IconSize ?? preset.IconSize) * ui,
+            (geometry.Gap ?? preset.Gap) * ui, typography * fontPreference * ui,
+            new Thickness(padding.Left * ui, padding.Top * ui, padding.Right * ui, padding.Bottom * ui),
+            geometry.IconPosition, geometry.SizePreset, appearance.Current.UiScale, appearance.Current.FontSize);
+    }
+
+    private static void ApplyGeometry(Control control, ResolvedActionGeometry geometry, bool applyBounds = true)
+    {
+        if (applyBounds)
+        {
+            if (geometry.Width is { } width) control.Width = width;
+            if (geometry.MinWidth is { } minWidth) control.MinWidth = minWidth;
+            if (geometry.MaxWidth is { } maxWidth) control.MaxWidth = maxWidth;
+            control.Height = geometry.Height;
+        }
+        if (control is ContentControl content) content.Padding = geometry.Padding;
     }
 
     private Popup RegisterMenu(ResolvedAction action, Control trigger)
@@ -326,3 +385,7 @@ public sealed class DynamicActionBarHost : Border
         public int FocusIndex { get; set; } = -1;
     }
 }
+
+public sealed record ResolvedActionGeometry(double? Width, double? MinWidth, double? MaxWidth, double Height,
+    double IconSize, double Gap, double FontSize, Thickness Padding, ActionIconPosition IconPosition,
+    ActionControlSizePreset SizePreset, double UiScale, FontSizePreference FontSizePreference);

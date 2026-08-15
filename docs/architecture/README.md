@@ -1,5 +1,6 @@
 # Architecture
 
+- [Shared UI/UX design system](../design-system/OVERVIEW.md)
 - [Presentation foundation](PRESENTATION-FOUNDATION.md)
 - [Design tokens](DESIGN-TOKENS.md)
 - [Icon registry](ICON-REGISTRY.md)
@@ -16,6 +17,8 @@
 - [Ribbon context](RIBBON-CONTEXT.md)
 - [UI command registry](UI-COMMAND-REGISTRY.md)
 - [Dynamic Action Bars](DYNAMIC-ACTION-BARS.md)
+- [Dynamic Tree navigation](DYNAMIC-TREE-NAVIGATION.md)
+- [Split navigation layout](SPLIT-NAVIGATION-LAYOUT.md)
 - [Action definition](ACTION-DEFINITION.md)
 - [Action context](ACTION-CONTEXT.md)
 - [Supported platforms](SUPPORTED-PLATFORMS.md)

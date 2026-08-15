@@ -1,5 +1,15 @@
 <ResourceDictionary xmlns="https://github.com/avaloniaui"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <x:Double x:Key="DuiSpacingXs">4</x:Double>
+  <x:Double x:Key="DuiSpacingSmall">8</x:Double>
+  <x:Double x:Key="DuiSpacingMedium">12</x:Double>
+  <x:Double x:Key="DuiSpacingLarge">16</x:Double>
+  <x:Double x:Key="DuiRadiusSmall">4</x:Double>
+  <x:Double x:Key="DuiRadiusMedium">7</x:Double>
+  <x:Double x:Key="DuiTypographyCaption">11</x:Double>
+  <x:Double x:Key="DuiTypographyLabel">13</x:Double>
+  <x:Double x:Key="DuiTypographyBody">14</x:Double>
+  <x:Double x:Key="DuiTypographyTitle">16</x:Double>
   <ResourceDictionary.ThemeDictionaries>
     <ResourceDictionary x:Key="Light">
       <SolidColorBrush x:Key="DuiSurfaceBrush" Color="#FFF8FAFC" />

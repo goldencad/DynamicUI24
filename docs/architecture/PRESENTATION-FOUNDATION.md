@@ -1,5 +1,7 @@
 # Presentation foundation
 
+Reusable visual behavior follows the [DynamicUI24 design system](../design-system/OVERVIEW.md). Consumer applications should normally customize through metadata, tokens, registries, providers, and extension points rather than modifying shared controls.
+
 Task 2 separates semantic presentation contracts from Avalonia rendering:
 
 ```

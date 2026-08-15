@@ -26,6 +26,7 @@ public sealed partial class MainWindow : Window
     private readonly ShellPresentation shellPresentation;
     private readonly DictionaryLocalizationService localization;
     private readonly AvaloniaThemeService themeService;
+    private readonly AppearancePreferenceService appearanceService;
     private readonly SemanticIconRegistry iconRegistry;
     private readonly DynamicUI24.Avalonia.DynamicWorkspaceHost workspaceHost;
     private readonly SetupWorkspaceHost setupWorkspaceHost;
@@ -87,13 +88,14 @@ public sealed partial class MainWindow : Window
         companyScope = composition.CompanyScope;
         localization = new DictionaryLocalizationService();
         themeService = new AvaloniaThemeService(Application.Current!);
+        appearanceService = new AppearancePreferenceService();
         iconRegistry = CreateDemoIconRegistry();
         shellPresentation = new ShellPresentation(
             new ApplicationBrand("Framework Demo", DemoLogoKey, "#7C3AED"));
         workspaceHost = new DynamicUI24.Avalonia.DynamicWorkspaceHost(composition.Registry, localization);
         setupWorkspaceHost = new SetupWorkspaceHost(DemoSetup.Categories, new DemoSetupProvider(),
             new DemoSetupValidator(), DemoSetup.CreateEditors(), localization, iconRegistry,
-            companyContext.CurrentCompany);
+            companyContext.CurrentCompany, appearance: appearanceService);
         workspaceHost.RegisterViewFactory(StandardTemplateCodes.Setup, _ => setupWorkspaceHost);
         workspaceNavigation = new WorkspaceNavigationService(workspaces);
         workspaceNavigation.NavigationChanged += (_, args) =>
@@ -117,7 +119,7 @@ public sealed partial class MainWindow : Window
             localization,
             iconRegistry,
             themeService,
-            new AppearancePreferenceService(),
+            appearanceService,
             new DemoLayoutResetService(),
             exitService,
             companyContext,
@@ -140,8 +142,8 @@ public sealed partial class MainWindow : Window
             Task.FromResult(ActionCommandResult.Success("Permission-gated Action Bar command dispatched.")));
         var actionDispatcher = new ActionBarCommandDispatcher(
             workspaceNavigation, new DemoActionRefreshService(RefreshFromActionBar), actionCommands);
-        topActionBar = new DynamicActionBarHost(actionDispatcher, localization, iconRegistry);
-        bottomActionBar = new DynamicActionBarHost(actionDispatcher, localization, iconRegistry);
+        topActionBar = new DynamicActionBarHost(actionDispatcher, localization, iconRegistry, appearanceService);
+        bottomActionBar = new DynamicActionBarHost(actionDispatcher, localization, iconRegistry, appearanceService);
         topActionBar.CommandCompleted += ActionBarCommandCompleted;
         bottomActionBar.CommandCompleted += ActionBarCommandCompleted;
         ribbonHost = new DynamicRibbonHost(
@@ -921,6 +923,24 @@ public sealed partial class MainWindow : Window
         Console.WriteLine("SMOKE SHARED_TREE_ROW_UX: NORMAL HOVER SELECTED SELECTED_HOVER DISABLED FOCUS OVERFLOW PASS");
 
         setupWorkspaceHost.SetCandidateValue("NAME", "changed");
+        var baselineGeometry = setupWorkspaceHost.ActionGeometry(SetupActionCodes.New)!;
+        appearanceService.Update(appearanceService.Current with { UiScale = 1.25, FontSize = FontSizePreference.Large });
+        var scaledGeometry = setupWorkspaceHost.ActionGeometry(SetupActionCodes.New)!;
+        themeSelector.SelectedItem = ThemeMode.System;
+        languageSelector.SelectedItem = "vi-VN";
+        themeSelector.SelectedItem = ThemeMode.Light;
+        languageSelector.SelectedItem = "en-US";
+        themeSelector.SelectedItem = ThemeMode.Dark;
+        if (scaledGeometry.Height != baselineGeometry.Height * 1.25 ||
+            scaledGeometry.IconSize != baselineGeometry.IconSize * 1.25 ||
+            scaledGeometry.FontSize <= baselineGeometry.FontSize * 1.25 ||
+            scaledGeometry.MinWidth != baselineGeometry.MinWidth * 1.25 ||
+            setupWorkspaceHost.SelectedCategoryId != "catalog-01" || !setupWorkspaceHost.Lifecycle.Buffer!.IsDirty ||
+            iconRegistry.Resolve(StandardIconKeys.Add).Source is not SvgIconSource ||
+            iconRegistry.Resolve(StandardIconKeys.More).Source is not FontGlyphIconSource)
+            throw new InvalidOperationException("Action geometry/global scaling or generic SVG/font-glyph icon rendering failed.");
+        appearanceService.Update(new(ThemeMode.Dark, 1, FontSizePreference.Normal));
+        Console.WriteLine("SMOKE ACTION_GEOMETRY_ICONS: XS_SMALL_MEDIUM_LARGE_XL SCALE_FONT SVG_FONT_GLYPH VARIANTS PASS");
         var resizeWorkspaceId = workspaceHost.CurrentDefinition?.WorkspaceId;
         var resizeCategoryId = setupWorkspaceHost.SelectedCategoryId;
         if (!setupWorkspaceHost.HasResizableNavigationSplitter || setupWorkspaceHost.NavigationPaneWidth != 260 ||

@@ -1,8 +1,10 @@
 # Semantic icon registry
 
+The normative public contract and extension rules are in the design-system [Icon standard](../design-system/ICONS.md).
+
 Reusable presentation code asks `IIconRegistry` for an `IconKey`; it never names an asset
-file. `SemanticIconRegistry` maps standard keys to portable SVG path data and
-`SemanticIcon` renders the resolved geometry with theme-aware foreground brushes.
+file. `SemanticIconRegistry` resolves generic SVG or font-glyph sources and
+`SemanticIcon` renders them with theme-aware foreground brushes.
 
 The initial catalog includes Search, Filter, Refresh, Add, Edit, Delete, Import, Export,
 Preview, Settings, Warning, Error, Info, Success, and Formula.

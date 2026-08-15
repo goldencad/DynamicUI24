@@ -69,5 +69,6 @@ public sealed class SemanticIconRegistry : IIconRegistry
         Register(new(StandardIconKeys.Clone, "M8,8 L20,8 L20,20 L8,20 Z M4,4 L16,4 L16,8 M4,4 L4,16 L8,16"));
         Register(new(StandardIconKeys.Publish, "M12,20 L12,5 M7,10 L12,5 L17,10 M5,20 L19,20"));
         Register(new(StandardIconKeys.Retire, "M5,7 L19,7 M8,7 L8,20 M16,7 L16,20 M7,4 L17,4 L19,7 L5,7 Z M11,11 L15,15 M15,11 L11,15"));
+        Register(new(StandardIconKeys.More, new FontGlyphIconSource("⋯", ".AppleSystemUIFont")));
     }
 }

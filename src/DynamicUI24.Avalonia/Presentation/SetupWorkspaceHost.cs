@@ -43,7 +43,8 @@ public sealed class SetupWorkspaceHost : Grid
 
     public SetupWorkspaceHost(IEnumerable<SetupCategoryDefinition> categories, ISetupDefinitionProvider provider,
         ISetupDefinitionValidator validator, SetupEditorRegistry editors, ILocalizationService localization,
-        IIconRegistry icons, CompanyDescriptor company, EffectiveAuthorizationContext? authorization = null)
+        IIconRegistry icons, CompanyDescriptor company, EffectiveAuthorizationContext? authorization = null,
+        IAppearancePreferenceService? appearance = null)
     {
         this.categories = (categories ?? throw new ArgumentNullException(nameof(categories))).ToArray();
         this.provider = provider ?? throw new ArgumentNullException(nameof(provider));
@@ -59,8 +60,8 @@ public sealed class SetupWorkspaceHost : Grid
         RegisterCommands(commands);
         var dispatcher = new ActionBarCommandDispatcher(new WorkspaceNavigationService([SetupWorkspace]),
             new SetupRefreshService(RefreshDefinitions), commands);
-        topActions = new(dispatcher, localization, icons);
-        bottomActions = new(dispatcher, localization, icons);
+        topActions = new(dispatcher, localization, icons, appearance);
+        bottomActions = new(dispatcher, localization, icons, appearance);
         splitLayout = new(new SplitNavigationLayoutState(260, 180, 520, 5));
 
         BuildLayout();
@@ -120,6 +121,7 @@ public sealed class SetupWorkspaceHost : Grid
     public bool LastActionMenuOpenUsedKeyboard(string actionCode) => ActionHost(actionCode).LastMenuOpenUsedKeyboard;
     public AuthorizationPresentationState? ActionMenuItemState(string actionCode, string itemCode) =>
         ActionHost(actionCode).GetMenuItemState(actionCode, itemCode);
+    public ResolvedActionGeometry? ActionGeometry(string actionCode) => ActionHost(actionCode).GetGeometry(actionCode);
     public Task<ActionCommandResult> ExecuteActionMenuItemAsync(string actionCode, string itemCode) =>
         ActionHost(actionCode).ExecuteMenuItemAsync(actionCode, itemCode);
     private DynamicActionBarHost ActionHost(string actionCode) =>

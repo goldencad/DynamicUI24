@@ -16,8 +16,13 @@ var bottom = new ActionBarDefinition("orders-bottom", "ORDERS_BOTTOM", ActionBar
 [
     new ActionDefinition("custom", "CUSTOM", new("Action.Custom"),
         StandardIconKeys.Info, ActionType.CustomRegistered,
-        registeredCommandCode: "ORDERS.CUSTOM"),
+        registeredCommandCode: "ORDERS.CUSTOM",
+        buttonVariant: ActionButtonVariant.IconButton,
+        geometry: new(ActionControlSizePreset.Small, width: 32, iconSize: 14,
+            iconPosition: ActionIconPosition.IconOnly)),
 ]);
 ```
 
 No XAML changes are required. Resolve these definitions against the current context and show them in the shared top/bottom hosts. The metadata describes presentation and dispatch only; it must not contain business logic.
+
+See the shared [button standard](../design-system/BUTTONS.md) for dropdown/split menus, all five presets, bounded overrides, typography, padding/gap, and global scaling behavior.

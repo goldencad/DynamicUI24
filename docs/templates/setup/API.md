@@ -1,5 +1,7 @@
 # Setup API
 
+Visual configuration uses the shared metadata contracts documented in [Buttons](../../design-system/BUTTONS.md), [Icons](../../design-system/ICONS.md), [Tree navigation](../../design-system/TREE-NAVIGATION.md), and [Split navigation](../../design-system/SPLIT-NAVIGATION-LAYOUT.md).
+
 Applications provide `ISetupDefinitionProvider` for category queries and Save Draft, Publish, and Retire transitions. They provide `ISetupDefinitionValidator` for diagnostics and register `ISetupDefinitionEditorProvider` instances in `SetupEditorRegistry`.
 
 The framework never assumes a database or publication backend. Providers decide storage and authoritative scope. The Demo implementation is deterministic and in-memory.

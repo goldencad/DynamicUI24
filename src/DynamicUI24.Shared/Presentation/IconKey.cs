@@ -56,10 +56,60 @@ public static class StandardIconKeys
     public static IconKey Clone { get; } = new("CLONE");
     public static IconKey Publish { get; } = new("PUBLISH");
     public static IconKey Retire { get; } = new("RETIRE");
+    public static IconKey More { get; } = new("MORE");
 }
 
-/// <summary>Portable SVG path payload resolved from a semantic key.</summary>
-public sealed record IconDefinition(IconKey Key, string SvgPathData, bool IsFallback = false);
+/// <summary>Registry-owned source. Reusable metadata continues to expose only <see cref="IconKey"/>.</summary>
+public abstract record IconSource;
+
+/// <summary>Portable SVG geometry, optionally identified by a logical application resource name.</summary>
+public sealed record SvgIconSource : IconSource
+{
+    public SvgIconSource(string pathData, string? resourceName = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(pathData);
+        PathData = pathData;
+        ResourceName = string.IsNullOrWhiteSpace(resourceName) ? null : resourceName.Trim();
+    }
+
+    public string PathData { get; }
+    public string? ResourceName { get; }
+}
+
+/// <summary>A glyph and installed/logical family name; never a raw font-file payload.</summary>
+public sealed record FontGlyphIconSource : IconSource
+{
+    public FontGlyphIconSource(string glyph, string fontFamily)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(glyph);
+        ArgumentException.ThrowIfNullOrWhiteSpace(fontFamily);
+        Glyph = glyph;
+        FontFamily = fontFamily.Trim();
+    }
+
+    public string Glyph { get; }
+    public string FontFamily { get; }
+}
+
+public sealed record IconDefinition
+{
+    public IconDefinition(IconKey key, IconSource source, bool isFallback = false)
+    {
+        Key = key;
+        Source = source ?? throw new ArgumentNullException(nameof(source));
+        IsFallback = isFallback;
+    }
+
+    public IconDefinition(IconKey key, string svgPathData, bool isFallback = false)
+        : this(key, new SvgIconSource(svgPathData), isFallback) { }
+
+    public IconKey Key { get; }
+    public IconSource Source { get; }
+    public bool IsFallback { get; }
+
+    /// <summary>Compatibility projection for existing SVG consumers; empty for non-SVG sources.</summary>
+    public string SvgPathData => (Source as SvgIconSource)?.PathData ?? string.Empty;
+}
 
 public interface IIconRegistry
 {

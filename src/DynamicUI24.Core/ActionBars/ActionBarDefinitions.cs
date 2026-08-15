@@ -87,7 +87,8 @@ public sealed record ActionDefinition
         string? batchActionCode = null,
         ActionButtonVariant buttonVariant = ActionButtonVariant.Button,
         IEnumerable<ActionMenuItemDefinition>? menuItems = null,
-        bool isChecked = false)
+        bool isChecked = false,
+        ActionControlGeometry? geometry = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(actionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(actionCode);
@@ -115,6 +116,7 @@ public sealed record ActionDefinition
         MenuItems = (menuItems ?? []).OrderBy(x => x.DisplayOrder)
             .ThenBy(x => x.ItemCode, StringComparer.Ordinal).ToImmutableArray();
         IsChecked = isChecked;
+        Geometry = geometry ?? new();
         if (buttonVariant is ActionButtonVariant.DropdownButton or ActionButtonVariant.SplitButton && MenuItems.Length == 0)
             throw new ArgumentException("Dropdown and Split actions require menu metadata.", nameof(menuItems));
         if (buttonVariant == ActionButtonVariant.SplitButton && string.IsNullOrWhiteSpace(RegisteredCommandCode))
@@ -139,6 +141,7 @@ public sealed record ActionDefinition
     public ActionButtonVariant ButtonVariant { get; }
     public ImmutableArray<ActionMenuItemDefinition> MenuItems { get; }
     public bool IsChecked { get; }
+    public ActionControlGeometry Geometry { get; }
 
     private static bool IsTechnicalCode(string value) => value.Trim().All(character =>
         char.IsAsciiLetterOrDigit(character) || character is '_' or '-' or '.');

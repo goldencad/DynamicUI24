@@ -227,6 +227,25 @@ public sealed class ActionBarFoundationTests
                 Item("CHILD", "OK", AuthorizationPresentationState.VisibleEnabled)), context)).Status);
     }
 
+    [Fact]
+    public void ActionGeometrySupportsPresetsAndBoundedOverrides()
+    {
+        var geometry = new ActionControlGeometry(ActionControlSizePreset.Xl, width: 180, minWidth: 120,
+            maxWidth: 240, height: 48, typographyToken: ActionTypographyToken.Title, iconSize: 24,
+            iconPosition: ActionIconPosition.Top, padding: new ActionThickness(12, 8), gap: 10);
+        var action = new ActionDefinition("geometry", "GEOMETRY", new("Geometry"), StandardIconKeys.Add,
+            ActionType.CustomRegistered, registeredCommandCode: "GEOMETRY", geometry: geometry);
+        Assert.Same(geometry, action.Geometry);
+        Assert.Equal(ActionControlSizePreset.Xl, action.Geometry.SizePreset);
+        Assert.Equal(ActionIconPosition.Top, action.Geometry.IconPosition);
+        Assert.Throws<ArgumentOutOfRangeException>(() => new ActionControlGeometry(width: 641));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new ActionControlGeometry(height: 19));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new ActionControlGeometry(iconSize: 65));
+        Assert.Throws<ArgumentException>(() => new ActionControlGeometry(width: 100, minWidth: 120));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new ActionThickness(49, 1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new ActionThickness(double.NaN, 1));
+    }
+
     private static ActionDefinition Action(string code, int order) =>
         new(code, code, new(code), StandardIconKeys.Refresh, ActionType.Refresh, order);
     private static ActionDefinition Registered(string code) =>
