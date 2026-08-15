@@ -5,3 +5,5 @@
 Task 8 is a foundation, not a collection of complete designers. Columns/Variables, Navigation Tree, Ribbon, Action Bars, Dashboard, and Reports deliberately resolve to a localized unavailable state until later modules register their editors.
 
 The Avalonia host uses semantic design-token brushes, `IconKey`, the shared authorization resolver, and shared top/bottom Dynamic Action Bars. Runtime culture or theme changes rebuild presentation only and do not replace the selected definition or candidate.
+
+The internal category pane consumes the shared `DynamicTreeHost`. Catalog children initially show five items in the Demo, expand five at a time through localized See more / Xem thêm, and can return to the initial window with Show less / Thu gọn. This limit is presentation paging, not a metadata or catalog-count limit.

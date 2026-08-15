@@ -291,8 +291,10 @@ public sealed class ArchitectureBoundaryTests
         var path = Path.Combine(RepositoryRoot, "src", "DynamicUI24.Avalonia", "Presentation", "SetupWorkspaceHost.cs");
         var source = File.ReadAllText(path);
         Assert.Contains("DynamicActionBarHost", source, StringComparison.Ordinal);
+        Assert.Contains("DynamicTreeHost", source, StringComparison.Ordinal);
+        Assert.Contains("TreeOverflowOptions", source, StringComparison.Ordinal);
         Assert.Contains("SetupActionBarDefinitions", source, StringComparison.Ordinal);
-        Assert.Contains("SemanticIcon", source, StringComparison.Ordinal);
+        Assert.Contains("IIconRegistry", source, StringComparison.Ordinal);
         Assert.DoesNotContain("SvgPathData", source, StringComparison.Ordinal);
     }
 

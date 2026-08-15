@@ -19,12 +19,11 @@ public sealed class SetupWorkspaceHost : Grid
     private static readonly WorkspaceDefinition SetupWorkspace = new("setup-internal", "Setup", StandardTemplateCodes.Setup);
     private readonly ILocalizationService localization;
     private readonly ISetupDefinitionProvider provider;
-    private readonly IIconRegistry icons;
     private readonly SetupEditorRegistry editors;
     private readonly SetupDefinitionLifecycle lifecycle;
     private readonly SetupCategoryResolver categoryResolver = new();
     private readonly IReadOnlyList<SetupCategoryDefinition> categories;
-    private readonly TreeView categoryTree = new();
+    private readonly DynamicTreeHost categoryTree;
     private readonly ListBox definitionList = new();
     private readonly StackPanel editorPanel = new() { Spacing = 8 };
     private readonly StackPanel diagnosticsPanel = new() { Spacing = 4 };
@@ -37,7 +36,6 @@ public sealed class SetupWorkspaceHost : Grid
     private EffectiveAuthorizationContext? authorization;
     private CompanyDescriptor company;
     private SetupCategoryDefinition? selectedCategory;
-    private TreeViewItem? selectedTreeItem;
     private bool suppressSelection;
     private ImmutableArray<string> visibleCategoryCodes = [];
 
@@ -49,10 +47,11 @@ public sealed class SetupWorkspaceHost : Grid
         this.provider = provider ?? throw new ArgumentNullException(nameof(provider));
         this.editors = editors ?? throw new ArgumentNullException(nameof(editors));
         this.localization = localization ?? throw new ArgumentNullException(nameof(localization));
-        this.icons = icons ?? throw new ArgumentNullException(nameof(icons));
+        ArgumentNullException.ThrowIfNull(icons);
         this.company = company ?? throw new ArgumentNullException(nameof(company));
         this.authorization = authorization;
         lifecycle = new(provider, validator ?? throw new ArgumentNullException(nameof(validator)));
+        categoryTree = new(localization, icons, new TreeOverflowOptions(5, 5)) { ShowTitle = false };
 
         var commands = new ActionCommandRegistry();
         RegisterCommands(commands);
@@ -66,7 +65,7 @@ public sealed class SetupWorkspaceHost : Grid
         ColumnSpacing = 12;
         RowSpacing = 8;
         BuildLayout();
-        categoryTree.SelectionChanged += CategorySelectionChanged;
+        categoryTree.NodeSelected += CategoryNodeSelected;
         definitionList.SelectionChanged += DefinitionSelectionChanged;
         search.TextChanged += (_, _) => RefreshDefinitions();
         localization.CultureChanged += (_, _) => RenderAllPreservingState();
@@ -82,12 +81,17 @@ public sealed class SetupWorkspaceHost : Grid
 
     public bool SelectCategory(string categoryId)
     {
-        var item = FindTreeItem(categoryTree.Items.OfType<TreeViewItem>(), categoryId);
-        if (item?.Tag is not SetupCategoryDefinition category) return false;
-        item.IsSelected = true;
-        ActivateCategory(item, category);
+        var category = categories.FirstOrDefault(x => x.CategoryId.Equals(categoryId, StringComparison.OrdinalIgnoreCase));
+        if (category is null || !visibleCategoryCodes.Contains(category.CategoryCode)) return false;
+        categoryTree.SelectNode(categoryId);
+        ActivateCategory(category);
         return true;
     }
+    public TreeChildWindow GetCategoryChildWindow(string? parentCategoryId) => categoryTree.GetChildWindow(parentCategoryId);
+    public bool SetCategoryExpanded(string categoryId, bool isExpanded) => categoryTree.SetNodeExpanded(categoryId, isExpanded);
+    public bool IsCategoryExpanded(string categoryId) => categoryTree.IsNodeExpanded(categoryId);
+    public bool ShowMoreCategories(string? parentCategoryId) => categoryTree.ShowMore(parentCategoryId);
+    public bool ShowLessCategories(string? parentCategoryId) => categoryTree.ShowLess(parentCategoryId);
     public bool SelectDefinition(string definitionId)
     {
         var row = definitionList.ItemsSource?.Cast<DefinitionRow>()
@@ -142,12 +146,23 @@ public sealed class SetupWorkspaceHost : Grid
         var preserve = selectedCategory?.CategoryId;
         var result = categoryResolver.Resolve(categories, authorization);
         visibleCategoryCodes = Flatten(result.Roots).Select(x => x.Definition.CategoryCode).ToImmutableArray();
-        categoryTree.Items.Clear();
-        foreach (var root in result.Roots) categoryTree.Items.Add(CreateTreeItem(root));
+        if (result.Diagnostics.Length == 0)
+        {
+            var definition = new TreeDefinition("setup-categories", "SETUP_CATEGORIES", 1, categories.Select(x =>
+                new TreeNodeDefinition(x.CategoryId, x.CategoryCode, x.DisplayNameKey, x.ParentCategoryId,
+                    x.IconKey, x.DisplayOrder, isVisible: x.IsVisible, permissionRequirement: x.PermissionRequirement)));
+            categoryTree.Show(new DynamicTreeResolver().Resolve(definition,
+                new TreeResolutionContext(company, authorization), []));
+        }
+        else
+        {
+            var empty = new TreeDefinition("setup-categories-invalid", "SETUP_CATEGORIES_INVALID", 1, []);
+            categoryTree.Show(new(empty, [], result.Diagnostics.Select(x => new TreeDiagnostic(x.Code, x.Message)).ToImmutableArray()));
+        }
         if (result.Diagnostics.Length > 0) status.Text = string.Join(" · ", result.Diagnostics.Select(x => x.Code));
         if (preserve is not null) SelectCategory(preserve);
-        else if (categoryTree.Items.OfType<TreeViewItem>().FirstOrDefault() is { Tag: SetupCategoryDefinition category } first)
-        { first.IsSelected = true; ActivateCategory(first, category); }
+        else if (result.Roots.FirstOrDefault()?.Definition is { } category)
+        { categoryTree.SelectNode(category.CategoryId); ActivateCategory(category); }
     }
 
     private static IEnumerable<ResolvedSetupCategory> Flatten(IEnumerable<ResolvedSetupCategory> nodes)
@@ -159,60 +174,24 @@ public sealed class SetupWorkspaceHost : Grid
         }
     }
 
-    private TreeViewItem CreateTreeItem(ResolvedSetupCategory category)
-    {
-        var icon = new SemanticIcon { Width = 16, Height = 16 };
-        icon.SetIcon(icons, category.Definition.IconKey);
-        icon.Bind(SemanticIcon.ForegroundProperty, icon.GetResourceObservable("DuiAccentBrush"));
-        var item = new TreeViewItem { Header = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6,
-                Children = { icon, new TextBlock { Text = localization.Get(category.Definition.DisplayNameKey) } } }, Tag = category.Definition,
-            IsEnabled = category.State == AuthorizationPresentationState.VisibleEnabled };
-        foreach (var child in category.Children) item.Items.Add(CreateTreeItem(child));
-        return item;
-    }
-
-    private static TreeViewItem? FindTreeItem(IEnumerable<TreeViewItem> items, string id)
-    {
-        foreach (var item in items)
-        {
-            if (item.Tag is SetupCategoryDefinition category && category.CategoryId.Equals(id, StringComparison.OrdinalIgnoreCase))
-                return item;
-            if (item.ItemCount > 0) item.IsExpanded = true;
-            if (FindTreeItem(item.Items.OfType<TreeViewItem>(), id) is { } child) return child;
-        }
-        return null;
-    }
-
-    private void CategorySelectionChanged(object? sender, SelectionChangedEventArgs e)
+    private void CategoryNodeSelected(object? sender, TreeNodeSelectedEventArgs e)
     {
         if (suppressSelection) return;
-        var item = categoryTree.SelectedItem as TreeViewItem ?? FindSelectedTreeItem(categoryTree.Items.OfType<TreeViewItem>());
-        if (item?.Tag is not SetupCategoryDefinition category) return;
-        ActivateCategory(item, category);
+        var category = categories.FirstOrDefault(x => x.CategoryId.Equals(e.Node.NodeId, StringComparison.OrdinalIgnoreCase));
+        if (category is not null) ActivateCategory(category);
     }
 
-    private static TreeViewItem? FindSelectedTreeItem(IEnumerable<TreeViewItem> items)
-    {
-        foreach (var item in items)
-        {
-            if (item.IsSelected) return item;
-            if (FindSelectedTreeItem(item.Items.OfType<TreeViewItem>()) is { } child) return child;
-        }
-        return null;
-    }
-
-    private void ActivateCategory(TreeViewItem item, SetupCategoryDefinition category)
+    private void ActivateCategory(SetupCategoryDefinition category)
     {
         if (selectedCategory?.CategoryId.Equals(category.CategoryId, StringComparison.OrdinalIgnoreCase) == true) return;
         if (lifecycle.Buffer?.IsDirty == true)
         {
             status.Text = localization.Get(new("Setup.Dirty.Blocked"));
             suppressSelection = true;
-            if (selectedTreeItem is not null) selectedTreeItem.IsSelected = true;
+            if (selectedCategory is not null) categoryTree.SelectNode(selectedCategory.CategoryId);
             suppressSelection = false;
             return;
         }
-        selectedTreeItem = item;
         selectedCategory = category;
         heading.Text = localization.Get(category.DisplayNameKey);
         RefreshDefinitions();

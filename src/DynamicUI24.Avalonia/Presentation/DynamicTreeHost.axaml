@@ -6,6 +6,11 @@
     <TextBlock x:Name="TitleText" Margin="12,12,12,8" FontWeight="SemiBold"
                Foreground="{DynamicResource DuiTextBrush}" />
     <TreeView x:Name="Tree" Grid.Row="1" Margin="6" SelectionChanged="TreeSelectionChanged">
+      <TreeView.Styles>
+        <Style Selector="TreeViewItem">
+          <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+        </Style>
+      </TreeView.Styles>
       <TreeView.DataTemplates>
         <TreeDataTemplate DataType="local:TreeNodeView" ItemsSource="{Binding Children}">
           <Grid ColumnDefinitions="Auto,*" ColumnSpacing="7" IsEnabled="{Binding IsEnabled}">
@@ -14,6 +19,16 @@
             <TextBlock Grid.Column="1" Text="{Binding Label}" VerticalAlignment="Center" />
           </Grid>
         </TreeDataTemplate>
+        <DataTemplate DataType="local:TreeOverflowView">
+          <StackPanel Orientation="Horizontal" Spacing="6" Margin="22,2,0,2">
+            <Button Content="{Binding ShowMoreLabel}" IsVisible="{Binding CanShowMore}"
+                    Click="ShowMoreClick" Padding="8,3" />
+            <TextBlock Text="{Binding RemainingCount}" IsVisible="{Binding CanShowMore}"
+                       VerticalAlignment="Center" Foreground="{DynamicResource DuiTextMutedBrush}" />
+            <Button Content="{Binding ShowLessLabel}" IsVisible="{Binding CanShowLess}"
+                    Click="ShowLessClick" Padding="8,3" />
+          </StackPanel>
+        </DataTemplate>
       </TreeView.DataTemplates>
     </TreeView>
   </Grid>

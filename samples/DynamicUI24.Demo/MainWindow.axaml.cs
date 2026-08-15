@@ -857,6 +857,29 @@ public sealed partial class MainWindow : Window
             throw new InvalidOperationException("Setup tree or standard/catalog categories were not rendered.");
         Console.WriteLine("SMOKE SETUP_TREE: PASS CATALOGS=" + setupWorkspaceHost.VisibleCategoryCodes.Count(x => x.StartsWith("CATALOG_", StringComparison.Ordinal)));
 
+        var initialCatalogWindow = setupWorkspaceHost.GetCategoryChildWindow("catalogs");
+        if (!setupWorkspaceHost.SetCategoryExpanded("catalogs", true) || initialCatalogWindow.VisibleCount != 5 ||
+            !initialCatalogWindow.CanShowMore || initialCatalogWindow.CanShowLess ||
+            !setupWorkspaceHost.ShowMoreCategories("catalogs"))
+            throw new InvalidOperationException("Setup shared Tree initial overflow window failed.");
+        var expandedCatalogWindow = setupWorkspaceHost.GetCategoryChildWindow("catalogs");
+        await companyScope.SwitchCompanyAsync(DemoCompanyData.CompanyBId);
+        setupWorkspaceHost.UpdateContext(companyScope.Snapshot.Company, companyScope.Snapshot.AuthorizationContext);
+        if (setupWorkspaceHost.GetCategoryChildWindow("catalogs").VisibleCount != 10)
+            throw new InvalidOperationException("Setup Tree overflow state was lost on Company change.");
+        await companyScope.SwitchCompanyAsync(DemoCompanyData.CompanyAId);
+        setupWorkspaceHost.UpdateContext(companyScope.Snapshot.Company, companyScope.Snapshot.AuthorizationContext);
+        languageSelector.SelectedItem = "vi-VN";
+        themeSelector.SelectedItem = ThemeMode.Light;
+        languageSelector.SelectedItem = "en-US";
+        themeSelector.SelectedItem = ThemeMode.Dark;
+        if (expandedCatalogWindow.VisibleCount != 10 || expandedCatalogWindow.CanShowMore || !expandedCatalogWindow.CanShowLess ||
+            setupWorkspaceHost.GetCategoryChildWindow("catalogs").VisibleCount != 10 ||
+            !setupWorkspaceHost.IsCategoryExpanded("catalogs") ||
+            !setupWorkspaceHost.ShowLessCategories("catalogs") || setupWorkspaceHost.GetCategoryChildWindow("catalogs").VisibleCount != 5)
+            throw new InvalidOperationException("Setup shared Tree incremental/show-less or presentation-state preservation failed.");
+        Console.WriteLine("SMOKE SETUP_TREE_OVERFLOW: INITIAL=5 MORE=10 LESS=5 COMPANY_CULTURE_THEME_PRESERVED");
+
         var catalogSelected = setupWorkspaceHost.SelectCategory("catalog-01");
         var definitionSelected = setupWorkspaceHost.SelectDefinition("catalog-definition-01-a");
         if (!catalogSelected || setupWorkspaceHost.DefinitionCount != 1 || !definitionSelected ||
