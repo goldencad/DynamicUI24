@@ -6,6 +6,7 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using DynamicUI24.Avalonia.Presentation;
 using DynamicUI24.Core.Authorization;
+using DynamicUI24.Core.ActionBars;
 using DynamicUI24.Core.Companies;
 using DynamicUI24.Core.Workspaces;
 using DynamicUI24.Core.Navigation;
@@ -31,6 +32,11 @@ public sealed partial class MainWindow : Window
     private readonly DynamicRibbonHost ribbonHost;
     private readonly DynamicTreeHost treeHost;
     private readonly DynamicTreeResolver treeResolver = new();
+    private readonly DynamicActionBarResolver actionBarResolver = new();
+    private readonly WorkspaceActionBarDefinitions actionBarDefinitions = DemoActionBars.Create();
+    private readonly WorkspaceNavigationService workspaceNavigation;
+    private readonly DynamicActionBarHost topActionBar;
+    private readonly DynamicActionBarHost bottomActionBar;
     private readonly TreeDefinition treeDefinition = DemoTree.Create();
     private readonly ComboBox workspaceSelector = new();
     private readonly ComboBox themeSelector = new();
@@ -62,6 +68,7 @@ public sealed partial class MainWindow : Window
     private DispatcherTimer? smokeTimer;
     private int smokeStep;
     private bool smokeAdvancing;
+    private int actionRefreshCount;
 
     public MainWindow()
         : this(DemoComposition.Create())
@@ -80,6 +87,11 @@ public sealed partial class MainWindow : Window
         shellPresentation = new ShellPresentation(
             new ApplicationBrand("Framework Demo", DemoLogoKey, "#7C3AED"));
         workspaceHost = new DynamicUI24.Avalonia.DynamicWorkspaceHost(composition.Registry, localization);
+        workspaceNavigation = new WorkspaceNavigationService(workspaces);
+        workspaceNavigation.NavigationChanged += (_, args) =>
+        {
+            if (args.CurrentWorkspace is not null) NavigateFromActionBar(args.CurrentWorkspace);
+        };
         stateView = new SharedStateView(localization, iconRegistry);
 
         var lifetime = (IClassicDesktopStyleApplicationLifetime)Application.Current!.ApplicationLifetime!;
@@ -113,6 +125,17 @@ public sealed partial class MainWindow : Window
             new DemoRibbonNavigationService(workspaces, NavigateFromRibbon),
             new DemoRibbonRefreshService(RefreshFromRibbon),
             commandRegistry);
+        var actionCommands = new ActionCommandRegistry();
+        actionCommands.Register("DEMO.ACTION.CUSTOM", (_, _) =>
+            Task.FromResult(ActionCommandResult.Success("Custom registered Action Bar command dispatched.")));
+        actionCommands.Register("DEMO.ACTION.GATED", (_, _) =>
+            Task.FromResult(ActionCommandResult.Success("Permission-gated Action Bar command dispatched.")));
+        var actionDispatcher = new ActionBarCommandDispatcher(
+            workspaceNavigation, new DemoActionRefreshService(RefreshFromActionBar), actionCommands);
+        topActionBar = new DynamicActionBarHost(actionDispatcher, localization, iconRegistry);
+        bottomActionBar = new DynamicActionBarHost(actionDispatcher, localization, iconRegistry);
+        topActionBar.CommandCompleted += ActionBarCommandCompleted;
+        bottomActionBar.CommandCompleted += ActionBarCommandCompleted;
         ribbonHost = new DynamicRibbonHost(
             DemoRibbon.Create(), workspaces, CreateRibbonContext(workspaces[0]),
             new DynamicRibbonResolver(), dispatcher, localization, iconRegistry);
@@ -160,15 +183,17 @@ public sealed partial class MainWindow : Window
 
         var content = new Grid
         {
-            RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,Auto"),
+            RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,Auto,Auto,Auto"),
             RowSpacing = 14,
             Children =
             {
                 selectors,
-                Framed(workspaceHost, 1),
-                Framed(BuildCompanyProofSurface(), 2),
-                Framed(stateView, 3),
-                BuildIconSamples(4),
+                Place(topActionBar, 1),
+                Framed(workspaceHost, 2),
+                Place(bottomActionBar, 3),
+                Framed(BuildCompanyProofSurface(), 4),
+                Framed(stateView, 5),
+                BuildIconSamples(6),
             },
         };
         return new ScrollViewer { Content = content };
@@ -180,6 +205,12 @@ public sealed partial class MainWindow : Window
         var panel = new StackPanel { Spacing = 5, Children = { label, selector } };
         Grid.SetColumn(panel, column);
         return panel;
+    }
+
+    private static T Place<T>(T control, int row) where T : Control
+    {
+        Grid.SetRow(control, row);
+        return control;
     }
 
     private static Border Framed(Control child, int row)
@@ -295,7 +326,11 @@ public sealed partial class MainWindow : Window
         stateSelector.SelectionChanged += (_, _) => SetPresentationState();
         selectionSelector.ItemsSource = new[] { 0, 1, 5 };
         selectionSelector.SelectedIndex = 0;
-        selectionSelector.SelectionChanged += (_, _) => RefreshRibbon();
+        selectionSelector.SelectionChanged += (_, _) =>
+        {
+            RefreshRibbon();
+            RefreshActionBars();
+        };
     }
 
     private void ConfigureCompanyProof()
@@ -338,6 +373,7 @@ public sealed partial class MainWindow : Window
             : string.Join(", ", snapshot.AuthorizationContext.CapabilityCodes.OrderBy(code => code.Value));
         RefreshRequirementResolution();
         RefreshRibbon();
+        RefreshActionBars();
         RefreshTree(snapshot);
     }
 
@@ -367,6 +403,7 @@ public sealed partial class MainWindow : Window
             ? $"{definition.TemplateCode} · {result.Workspace!.TemplateModule}"
             : $"{definition.TemplateCode} · SAFE FAILURE";
         RefreshRibbon();
+        RefreshActionBars();
         treeHost.SelectWorkspace(definition.WorkspaceId);
     }
 
@@ -387,6 +424,7 @@ public sealed partial class MainWindow : Window
         shellPresentation.State = state;
         shellPresentation.StatusMessage = null;
         stateView.State = state;
+        RefreshActionBars();
     }
 
     private void RefreshLocalizedLabels()
@@ -418,6 +456,65 @@ public sealed partial class MainWindow : Window
     {
         var workspace = workspaceHost.CurrentDefinition ?? workspaces[0];
         ribbonHost.UpdateContext(CreateRibbonContext(workspace));
+    }
+
+    private ActionBarResolutionContext CreateActionBarContext(WorkspaceDefinition workspace) => new(
+        companyContext.CurrentCompany,
+        workspace,
+        workspace.TemplateCode,
+        companyScope.Snapshot.AuthorizationContext,
+        new ActionSelectionContext(selectionSelector.SelectedItem is int count ? count : 0),
+        shellPresentation.State,
+        CreateActionBarStatus(workspace));
+
+    private ActionBarStatus CreateActionBarStatus(WorkspaceDefinition workspace)
+    {
+        var selected = selectionSelector.SelectedItem is int count ? count : 0;
+        return workspace.WorkspaceId switch
+        {
+            "data-entry-demo" => new(125, 125, selected, 2, 0, 3, false),
+            "dashboard-demo" => new(125, 125, selected, 0, 1, actionRefreshCount, false),
+            _ => new(0, 0, selected, 0, 0, 0, shellPresentation.State.Kind == PresentationStateKind.ReadOnly),
+        };
+    }
+
+    private void RefreshActionBars()
+    {
+        var workspace = workspaceHost.CurrentDefinition;
+        if (workspace is null)
+        {
+            topActionBar.Clear();
+            bottomActionBar.Clear();
+            return;
+        }
+        var context = CreateActionBarContext(workspace);
+        var bars = actionBarDefinitions.ForWorkspace(workspace.WorkspaceId);
+        ShowActionBar(topActionBar, bars.FirstOrDefault(x => x.Position == ActionBarPosition.Top), context);
+        ShowActionBar(bottomActionBar, bars.FirstOrDefault(x => x.Position == ActionBarPosition.Bottom), context);
+    }
+
+    private void ShowActionBar(DynamicActionBarHost host, ActionBarDefinition? definition,
+        ActionBarResolutionContext context)
+    {
+        if (definition is null) host.Clear();
+        else host.Show(actionBarResolver.Resolve(definition, context, workspaces), new(context));
+    }
+
+    private void ActionBarCommandCompleted(object? sender, ActionCommandResult result) =>
+        shellPresentation.StatusMessage = $"Action Bar: {result.Status} · {result.DiagnosticCode ?? result.Message ?? "OK"}";
+
+    private void NavigateFromActionBar(WorkspaceDefinition workspace)
+    {
+        var index = workspaces.ToList().FindIndex(x => x.WorkspaceId.Equals(workspace.WorkspaceId, StringComparison.OrdinalIgnoreCase));
+        if (index >= 0) workspaceSelector.SelectedIndex = index;
+    }
+
+    private void RefreshFromActionBar()
+    {
+        actionRefreshCount++;
+        if (workspaceHost.CurrentDefinition is { } workspace) workspaceHost.ShowWorkspace(workspace);
+        shellPresentation.StatusMessage = $"{localization.Get(new("ActionBar.RefreshComplete"))} #{actionRefreshCount}";
+        RefreshActionBars();
     }
 
     private void NavigateFromRibbon(WorkspaceDefinition workspace)
@@ -515,6 +612,17 @@ public sealed partial class MainWindow : Window
         public Task ResetAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
     }
 
+    private sealed class DemoActionRefreshService(Action refresh) : IActionRefreshService
+    {
+        public Task<ActionCommandResult> RefreshAsync(ActionCommandExecutionContext context,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            refresh();
+            return Task.FromResult(ActionCommandResult.Success());
+        }
+    }
+
     private void StartSmokeRun(object? sender, EventArgs e)
     {
         smokeTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(180) };
@@ -595,6 +703,7 @@ public sealed partial class MainWindow : Window
             {
                 smokeTimer!.Stop();
                 await RunRibbonSmokeAsync();
+                await RunActionBarSmokeAsync();
                 Console.WriteLine("SMOKE CLEAN_EXIT: PASS");
                 Close();
                 return;
@@ -656,6 +765,76 @@ public sealed partial class MainWindow : Window
     private ResolvedRibbonCommand RibbonCommand(string commandCode) => ribbonHost.ResolvedRibbon.Tabs
         .SelectMany(x => x.Groups).SelectMany(x => x.Commands)
         .Single(x => x.Definition.CommandCode == commandCode);
+
+    private async Task RunActionBarSmokeAsync()
+    {
+        stateSelector.SelectedIndex = 0;
+        workspaceSelector.SelectedIndex = workspaces.ToList().FindIndex(x => x.WorkspaceId == "dashboard-demo");
+        RefreshActionBars();
+        if (!topActionBar.IsVisible || !bottomActionBar.IsVisible ||
+            topActionBar.ResolvedActionBar?.Definition.Position != ActionBarPosition.Top ||
+            bottomActionBar.ResolvedActionBar?.Definition.Position != ActionBarPosition.Bottom)
+            throw new InvalidOperationException("Top and Bottom Action Bars were not rendered.");
+        Console.WriteLine("SMOKE ACTION_BARS: TOP_BOTTOM_RENDERED");
+
+        var refresh = await topActionBar.ExecuteActionAsync("REFRESH");
+        var custom = await bottomActionBar.ExecuteActionAsync("CUSTOM");
+        if (refresh.Status != ActionCommandResultStatus.Success || custom.Status != ActionCommandResultStatus.Success || actionRefreshCount == 0)
+            throw new InvalidOperationException("Action Bar refresh/custom dispatch failed.");
+        Console.WriteLine("SMOKE ACTION_REFRESH_CUSTOM: PASS");
+
+        var navigate = await bottomActionBar.ExecuteActionAsync("OPEN_DATA");
+        if (navigate.Status != ActionCommandResultStatus.Success || workspaceHost.CurrentDefinition?.WorkspaceId != "data-entry-demo")
+            throw new InvalidOperationException("Action Bar navigation failed.");
+        Console.WriteLine("SMOKE ACTION_NAVIGATE: PASS");
+
+        selectionSelector.SelectedItem = 0;
+        RefreshActionBars();
+        if (ActionBarAction(topActionBar, "EDIT").IsEnabled)
+            throw new InvalidOperationException("Selection action must be disabled at zero selection.");
+        selectionSelector.SelectedItem = 1;
+        RefreshActionBars();
+        if (!ActionBarAction(topActionBar, "EDIT").IsEnabled || bottomActionBar.ResolvedActionBar?.Status?.SelectedRows != 1)
+            throw new InvalidOperationException("Selection state or Bottom Action Bar status was not refreshed.");
+        Console.WriteLine("SMOKE ACTION_SELECTION_STATUS: PASS");
+
+        await companyScope.SwitchCompanyAsync(DemoCompanyData.CompanyAId);
+        RefreshActionBars();
+        if (!ActionBarAction(topActionBar, "EDIT").IsEnabled)
+            throw new InvalidOperationException("Company A Action Bar permission was not enabled.");
+        await companyScope.SwitchCompanyAsync(DemoCompanyData.CompanyBId);
+        RefreshActionBars();
+        if (ActionBarAction(topActionBar, "EDIT").IsEnabled)
+            throw new InvalidOperationException("Company B Action Bar permission was not disabled.");
+        await companyScope.SwitchCompanyAsync(DemoCompanyData.CompanyCId);
+        RefreshActionBars();
+        if (ActionBarAction(topActionBar, "EDIT").IsEnabled)
+            throw new InvalidOperationException("Unavailable Company authorization did not fail closed for Action Bars.");
+        Console.WriteLine("SMOKE ACTION_COMPANY_RERESOLUTION: A=ENABLED B=DISABLED C=FAIL_CLOSED");
+
+        workspaceSelector.SelectedIndex = workspaces.ToList().FindIndex(x => x.WorkspaceId == "signing-demo");
+        RefreshActionBars();
+        var unknown = await bottomActionBar.ExecuteActionAsync("UNKNOWN_COMMAND");
+        if (unknown.Status != ActionCommandResultStatus.Unavailable ||
+            !iconRegistry.Resolve(new IconKey("UNKNOWN_ACTION_ICON")).IsFallback)
+            throw new InvalidOperationException("Unknown Action Bar command/icon did not fail safely.");
+        Console.WriteLine("SMOKE ACTION_UNKNOWN_COMMAND_ICON: SAFE_FAILURE");
+
+        var malformed = new ActionBarDefinition("malformed", "malformed", ActionBarPosition.Top,
+        [
+            new("missing", "MISSING_TARGET", new("ActionBar.Unknown"), StandardIconKeys.Info, ActionType.Navigate),
+            new("unknown", "UNKNOWN_TARGET", new("ActionBar.Unknown"), StandardIconKeys.Info, ActionType.Navigate,
+                targetWorkspaceId: "not-a-workspace"),
+        ]);
+        var malformedResult = actionBarResolver.Resolve(malformed,
+            CreateActionBarContext(workspaceHost.CurrentDefinition!), workspaces);
+        if (!malformedResult.Actions.IsEmpty || malformedResult.Diagnostics.Length != 2)
+            throw new InvalidOperationException("Malformed Action Bar metadata was not contained safely.");
+        Console.WriteLine("SMOKE ACTION_UNKNOWN_TARGET: SAFE_FAILURE");
+    }
+
+    private static ResolvedAction ActionBarAction(DynamicActionBarHost host, string actionCode) =>
+        host.ResolvedActionBar!.Actions.Single(x => x.Definition.ActionCode == actionCode);
 
     private void EnsureSmokeWorkspacePreserved()
     {

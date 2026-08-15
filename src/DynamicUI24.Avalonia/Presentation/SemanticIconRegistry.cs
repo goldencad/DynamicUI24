@@ -38,6 +38,8 @@ public sealed class SemanticIconRegistry : IIconRegistry
         Register(new(StandardIconKeys.Import, "M12,3 L12,15 M7,10 L12,15 L17,10 M4,19 L20,19"));
         Register(new(StandardIconKeys.Export, "M12,15 L12,3 M7,8 L12,3 L17,8 M4,19 L20,19"));
         Register(new(StandardIconKeys.Preview, "M2,12 C6,5 18,5 22,12 C18,19 6,19 2,12 M12,9 A3,3 0 1 0 12,15 A3,3 0 1 0 12,9"));
+        Register(new(StandardIconKeys.Validate, "M3,12 L9,18 L21,5"));
+        Register(new(StandardIconKeys.Commit, "M4,12 L9,17 L20,6 M4,20 L20,20"));
         Register(new(StandardIconKeys.Settings, "M12,3 A2,2 0 1 0 12,7 A2,2 0 1 0 12,3 M12,9 A3,3 0 1 0 12,15 A3,3 0 1 0 12,9 M12,17 A2,2 0 1 0 12,21 A2,2 0 1 0 12,17"));
         Register(new(StandardIconKeys.Warning, "M12,3 L22,21 L2,21 Z M12,9 L12,15 M12,18 L12,18.1"));
         Register(new(StandardIconKeys.Error, "M4,4 L20,20 M20,4 L4,20"));

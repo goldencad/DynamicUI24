@@ -25,6 +25,8 @@ public static class StandardIconKeys
     public static IconKey Import { get; } = new("IMPORT");
     public static IconKey Export { get; } = new("EXPORT");
     public static IconKey Preview { get; } = new("PREVIEW");
+    public static IconKey Validate { get; } = new("VALIDATE");
+    public static IconKey Commit { get; } = new("COMMIT");
     public static IconKey Settings { get; } = new("SETTINGS");
     public static IconKey Warning { get; } = new("WARNING");
     public static IconKey Error { get; } = new("ERROR");

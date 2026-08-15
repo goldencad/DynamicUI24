@@ -221,6 +221,57 @@ public sealed class ArchitectureBoundaryTests
     }
 
     [Fact]
+    public void ActionBarFoundationIsGenericAndFrameworkOwned()
+    {
+        var coreNamespaces = ReadTypeNamespaces("DynamicUI24.Core");
+        Assert.Contains("DynamicUI24.Core.ActionBars", coreNamespaces);
+        Assert.Contains(ReadTypeNamespaces("DynamicUI24.Avalonia"), value =>
+            value.Equals("DynamicUI24.Avalonia.Presentation", StringComparison.Ordinal));
+        AssertProjectAndAssemblyReferencesExclude("DynamicUI24.Core", static name =>
+            name.Contains("Actipro", StringComparison.OrdinalIgnoreCase) ||
+            name.Contains("Avalonia", StringComparison.OrdinalIgnoreCase) ||
+            name.Contains("Odoo", StringComparison.OrdinalIgnoreCase) ||
+            name.Contains("PayCalc24", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void ActionBarHostDoesNotCoupleToTemplatesTreeRibbonOrSvgPaths()
+    {
+        var path = Path.Combine(RepositoryRoot, "src", "DynamicUI24.Avalonia", "Presentation",
+            "DynamicActionBarHost.cs");
+        var source = File.ReadAllText(path);
+        Assert.DoesNotContain("DynamicUI24.Template.", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("DynamicTree", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("DynamicRibbon", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Geometry.Parse", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("SvgPathData", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ActionBarNavigationAndDispatchUseGenericCoreServices()
+    {
+        var path = Path.Combine(RepositoryRoot, "src", "DynamicUI24.Core", "ActionBars",
+            "ActionBarCommands.cs");
+        var source = File.ReadAllText(path);
+        Assert.Contains("IWorkspaceNavigationService", source, StringComparison.Ordinal);
+        Assert.Contains("IActionCommandRegistry", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("new DynamicTemplate", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("DynamicTree", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("DynamicRibbon", source, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TemplateModulesContainNoActionBarBehavior()
+    {
+        foreach (var template in Projects.Values.Where(project =>
+                     project.Name.StartsWith("DynamicUI24.Template.", StringComparison.Ordinal)))
+        {
+            Assert.DoesNotContain(Directory.EnumerateFiles(Path.GetDirectoryName(template.Path)!, "*.cs", SearchOption.AllDirectories),
+                path => File.ReadAllText(path).Contains("ActionBar", StringComparison.Ordinal));
+        }
+    }
+
+    [Fact]
     public void ApplicationMenuAndRibbonHaveSeparateShellRegions()
     {
         var shellXaml = File.ReadAllText(Path.Combine(RepositoryRoot,

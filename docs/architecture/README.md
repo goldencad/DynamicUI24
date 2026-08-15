@@ -15,6 +15,9 @@
 - [Ribbon definition](RIBBON-DEFINITION.md)
 - [Ribbon context](RIBBON-CONTEXT.md)
 - [UI command registry](UI-COMMAND-REGISTRY.md)
+- [Dynamic Action Bars](DYNAMIC-ACTION-BARS.md)
+- [Action definition](ACTION-DEFINITION.md)
+- [Action context](ACTION-CONTEXT.md)
 - [Supported platforms](SUPPORTED-PLATFORMS.md)
 - [Cross-platform dependencies](CROSS-PLATFORM-DEPENDENCIES.md)
 
