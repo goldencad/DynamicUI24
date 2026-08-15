@@ -1,6 +1,8 @@
 # Adoption
 
 - [Application branding](BRANDING.md)
+- [Company context integration](COMPANY-CONTEXT-INTEGRATION.md)
+- [Permission and capability mapping](PERMISSION-CAPABILITY-MAPPING.md)
 
 Consumer applications reference only the DynamicUI24 modules they need and supply their own business behavior, data access, permissions, and branding.
 

@@ -1,5 +1,7 @@
 using DynamicUI24.Core.Templates;
 using DynamicUI24.Core.Workspaces;
+using DynamicUI24.Core.Authorization;
+using DynamicUI24.Core.Companies;
 using DynamicUI24.Template.Dashboard;
 using DynamicUI24.Template.DataEntry;
 using DynamicUI24.Template.HistoryDocument;
@@ -11,7 +13,9 @@ namespace DynamicUI24.Demo;
 
 internal sealed record DemoComposition(
     TemplateRegistry Registry,
-    IReadOnlyList<WorkspaceDefinition> Workspaces)
+    IReadOnlyList<WorkspaceDefinition> Workspaces,
+    ICompanyContextProvider CompanyContext,
+    CompanyScopeCoordinator CompanyScope)
 {
     public static DemoComposition Create()
     {
@@ -36,7 +40,13 @@ internal sealed record DemoComposition(
             new("unknown-demo", "Unknown Template (safe failure)", new TemplateCode("UNKNOWN")),
         ];
 
-        return new(registry, workspaces);
+        var companyContext = new CompanyContextProvider(DemoCompanyData.Companies, DemoCompanyData.CompanyAId);
+        var companyScope = new CompanyScopeCoordinator(
+            companyContext,
+            new DemoCompanyProfileProvider(),
+            new DemoAuthorizationPresentationProvider(),
+            DemoCompanyData.User);
+        return new(registry, workspaces, companyContext, companyScope);
     }
 
     private static void EnsureRegistered(TemplateRegistrationResult result)

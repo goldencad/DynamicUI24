@@ -5,6 +5,9 @@
 - [Icon registry](ICON-REGISTRY.md)
 - [Localization](LOCALIZATION.md)
 - [Shell host](SHELL-HOST.md)
+- [Company context](COMPANY-CONTEXT.md)
+- [Authorization presentation](AUTHORIZATION-PRESENTATION.md)
+- [Company profile](COMPANY-PROFILE.md)
 
 DynamicUI24 is split into independently maintainable framework modules.
 

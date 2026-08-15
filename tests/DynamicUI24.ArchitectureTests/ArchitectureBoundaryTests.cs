@@ -115,6 +115,55 @@ public sealed class ArchitectureBoundaryTests
         }
     }
 
+    [Fact]
+    public void CompanyAndAuthorizationContractsRemainFrameworkGeneric()
+    {
+        foreach (var projectName in new[] { "DynamicUI24.Core", "DynamicUI24.Shared" })
+        {
+            AssertProjectAndAssemblyReferencesExclude(projectName, static name =>
+                name.Equals("DynamicUI24.Demo", StringComparison.Ordinal) ||
+                name.Contains("Avalonia", StringComparison.OrdinalIgnoreCase) ||
+                name.Contains("Odoo", StringComparison.OrdinalIgnoreCase) ||
+                name.Contains("PayCalc24", StringComparison.OrdinalIgnoreCase) ||
+                name.Contains("EntityFramework", StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    [Fact]
+    public void FrameworkDoesNotImplementConsumerRoleAdministrationOrProviderModels()
+    {
+        foreach (var project in FrameworkProjects())
+        {
+            var namespaces = ReadTypeNamespaces(project.Name);
+            Assert.DoesNotContain(namespaces, value =>
+                value.Contains("Odoo", StringComparison.OrdinalIgnoreCase) ||
+                value.Contains("PayCalc24", StringComparison.OrdinalIgnoreCase) ||
+                value.Contains("RoleAdministration", StringComparison.OrdinalIgnoreCase) ||
+                value.Contains("UserAdministration", StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    [Fact]
+    public void RepositoryContainsNoOwnerAccountBrandingOutsideRepositoryUrls()
+    {
+        var ownerAccount = "\u0067oldencad";
+        var permittedUrl = $"github.com/{ownerAccount}/DynamicUI24";
+        var textExtensions = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ".cs", ".csproj", ".axaml", ".md", ".json", ".props", ".targets", ".slnx", ".xml", ".yml", ".yaml",
+        };
+        var violations = Directory.EnumerateFiles(RepositoryRoot, "*", SearchOption.AllDirectories)
+            .Where(path => textExtensions.Contains(Path.GetExtension(path)))
+            .Where(path => !IsGeneratedOrRepositoryMetadata(path))
+            .SelectMany(path => File.ReadLines(path).Select((line, index) => new { path, line, index }))
+            .Where(item => item.line.Contains(ownerAccount, StringComparison.OrdinalIgnoreCase))
+            .Where(item => !item.line.Contains(permittedUrl, StringComparison.OrdinalIgnoreCase))
+            .Select(item => $"{Path.GetRelativePath(RepositoryRoot, item.path)}:{item.index + 1}")
+            .ToArray();
+
+        Assert.Empty(violations);
+    }
+
     private static void AssertProjectAndAssemblyReferencesExclude(
         string projectName,
         Func<string, bool> isForbidden)
@@ -131,6 +180,13 @@ public sealed class ArchitectureBoundaryTests
 
     private static bool IsExtension(string name) =>
         name is "DynamicUI24.Excel" or "DynamicUI24.Reporting" or "DynamicUI24.Documents" or "DynamicUI24.Batch";
+
+    private static bool IsGeneratedOrRepositoryMetadata(string path)
+    {
+        var relative = Path.GetRelativePath(RepositoryRoot, path);
+        var segments = relative.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return segments.Any(segment => segment is ".git" or "bin" or "obj");
+    }
 
     private static IReadOnlyDictionary<string, ProjectInfo> LoadProjects()
     {

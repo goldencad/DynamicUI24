@@ -5,6 +5,8 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
 using DynamicUI24.Avalonia.Presentation;
+using DynamicUI24.Core.Authorization;
+using DynamicUI24.Core.Companies;
 using DynamicUI24.Core.Workspaces;
 using DynamicUI24.Shared.Presentation;
 
@@ -20,17 +22,36 @@ public sealed partial class MainWindow : Window
     private readonly SemanticIconRegistry iconRegistry;
     private readonly DynamicUI24.Avalonia.DynamicWorkspaceHost workspaceHost;
     private readonly SharedStateView stateView;
+    private readonly ICompanyContextProvider companyContext;
+    private readonly CompanyScopeCoordinator companyScope;
     private readonly ComboBox workspaceSelector = new();
     private readonly ComboBox themeSelector = new();
     private readonly ComboBox languageSelector = new();
     private readonly ComboBox stateSelector = new();
+    private readonly ComboBox companySelector = new();
+    private readonly ComboBox unauthorizedBehaviorSelector = new();
     private readonly TextBlock workspaceLabel = new();
     private readonly TextBlock themeLabel = new();
     private readonly TextBlock languageLabel = new();
     private readonly TextBlock stateLabel = new();
     private readonly TextBlock iconLabel = new();
+    private readonly TextBlock companyLabel = new();
+    private readonly TextBlock currentCompanyLabel = new();
+    private readonly TextBlock currentCompanyValue = new();
+    private readonly TextBlock profileLabel = new();
+    private readonly TextBlock profileValue = new() { TextWrapping = TextWrapping.Wrap };
+    private readonly TextBlock permissionLabel = new();
+    private readonly TextBlock permissionValue = new() { TextWrapping = TextWrapping.Wrap };
+    private readonly TextBlock capabilityLabel = new();
+    private readonly TextBlock capabilityValue = new() { TextWrapping = TextWrapping.Wrap };
+    private readonly TextBlock requirementLabel = new();
+    private readonly TextBlock behaviorLabel = new();
+    private readonly TextBlock resolutionLabel = new();
+    private readonly TextBlock resolutionValue = new();
+    private readonly TextBlock companyStateValue = new();
     private DispatcherTimer? smokeTimer;
     private int smokeStep;
+    private bool smokeAdvancing;
 
     public MainWindow()
         : this(DemoComposition.Create())
@@ -41,11 +62,13 @@ public sealed partial class MainWindow : Window
     {
         InitializeComponent();
         workspaces = composition.Workspaces;
+        companyContext = composition.CompanyContext;
+        companyScope = composition.CompanyScope;
         localization = new DictionaryLocalizationService();
         themeService = new AvaloniaThemeService(Application.Current!);
         iconRegistry = CreateDemoIconRegistry();
         shellPresentation = new ShellPresentation(
-            new ApplicationBrand("GoldenCAD DynamicUI24", DemoLogoKey, "#7C3AED"));
+            new ApplicationBrand("Framework Demo", DemoLogoKey, "#7C3AED"));
         workspaceHost = new DynamicUI24.Avalonia.DynamicWorkspaceHost(composition.Registry, localization);
         stateView = new SharedStateView(localization, iconRegistry);
 
@@ -59,10 +82,15 @@ public sealed partial class MainWindow : Window
         ShellContainer.Content = shell;
 
         ConfigureSelectors();
+        ConfigureCompanyProof();
         localization.CultureChanged += (_, _) => RefreshLocalizedLabels();
         RefreshLocalizedLabels();
         workspaceSelector.SelectedIndex = 0;
         stateSelector.SelectedIndex = 0;
+
+        companyScope.SnapshotChanged += CompanyScopeSnapshotChanged;
+        Opened += async (_, _) => await companyScope.InitializeAsync();
+        Closed += (_, _) => companyScope.Dispose();
 
         if (Program.IsSmokeRun)
         {
@@ -85,18 +113,20 @@ public sealed partial class MainWindow : Window
             },
         };
 
-        return new Grid
+        var content = new Grid
         {
-            RowDefinitions = new RowDefinitions("Auto,*,Auto,Auto"),
+            RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,Auto"),
             RowSpacing = 14,
             Children =
             {
                 selectors,
                 Framed(workspaceHost, 1),
-                Framed(stateView, 2),
-                BuildIconSamples(),
+                Framed(BuildCompanyProofSurface(), 2),
+                Framed(stateView, 3),
+                BuildIconSamples(4),
             },
         };
+        return new ScrollViewer { Content = content };
     }
 
     private static Control Field(TextBlock label, ComboBox selector, int column)
@@ -122,7 +152,7 @@ public sealed partial class MainWindow : Window
         return border;
     }
 
-    private Control BuildIconSamples()
+    private Control BuildIconSamples(int rowIndex)
     {
         var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 14 };
         foreach (var key in new[]
@@ -142,8 +172,47 @@ public sealed partial class MainWindow : Window
         }
 
         var panel = new StackPanel { Spacing = 7, Children = { iconLabel, row } };
-        Grid.SetRow(panel, 3);
+        Grid.SetRow(panel, rowIndex);
         return panel;
+    }
+
+    private Control BuildCompanyProofSurface()
+    {
+        var selectorField = Field(companyLabel, companySelector, 0);
+        var behaviorField = Field(behaviorLabel, unauthorizedBehaviorSelector, 1);
+        var selectors = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("*,*"),
+            ColumnSpacing = 12,
+            Children = { selectorField, behaviorField },
+        };
+
+        var identity = new StackPanel
+        {
+            Spacing = 4,
+            Children = { currentCompanyLabel, currentCompanyValue, companyStateValue },
+        };
+        var profile = new StackPanel { Spacing = 4, Children = { profileLabel, profileValue } };
+        var access = new StackPanel
+        {
+            Spacing = 4,
+            Children = { permissionLabel, permissionValue, capabilityLabel, capabilityValue },
+        };
+        var requirement = new StackPanel
+        {
+            Spacing = 4,
+            Children = { requirementLabel, resolutionLabel, resolutionValue },
+        };
+        foreach (var text in new[] { companyStateValue, permissionValue, capabilityValue, resolutionValue })
+        {
+            text.Bind(TextBlock.ForegroundProperty, text.GetResourceObservable("DuiTextMutedBrush"));
+        }
+
+        return new StackPanel
+        {
+            Spacing = 12,
+            Children = { selectors, identity, profile, access, requirement },
+        };
     }
 
     private void ConfigureSelectors()
@@ -179,6 +248,57 @@ public sealed partial class MainWindow : Window
             PresentationStateKind.Unavailable,
         };
         stateSelector.SelectionChanged += (_, _) => SetPresentationState();
+    }
+
+    private void ConfigureCompanyProof()
+    {
+        companySelector.ItemsSource = companyContext.AvailableCompanies
+            .Select(company => company.DisplayName)
+            .ToArray();
+        companySelector.SelectedIndex = 0;
+        companySelector.SelectionChanged += async (_, _) =>
+        {
+            var index = companySelector.SelectedIndex;
+            if (index >= 0 && index < companyContext.AvailableCompanies.Count)
+            {
+                await companyScope.SwitchCompanyAsync(companyContext.AvailableCompanies[index].CompanyId);
+            }
+        };
+
+        unauthorizedBehaviorSelector.ItemsSource = Enum.GetValues<UnauthorizedBehavior>();
+        unauthorizedBehaviorSelector.SelectedItem = UnauthorizedBehavior.ReadOnly;
+        unauthorizedBehaviorSelector.SelectionChanged += (_, _) => RefreshRequirementResolution();
+    }
+
+    private void CompanyScopeSnapshotChanged(object? sender, CompanyScopeSnapshot snapshot) =>
+        Dispatcher.UIThread.Post(() => ApplyCompanySnapshot(snapshot));
+
+    private void ApplyCompanySnapshot(CompanyScopeSnapshot snapshot)
+    {
+        currentCompanyValue.Text = $"{snapshot.Company.DisplayName} · CompanyId={snapshot.Company.CompanyId}";
+        companyStateValue.Text = $"{snapshot.Status} · v{snapshot.Version}";
+        var profile = snapshot.ProfileResult?.Profile;
+        profileValue.Text = profile is null
+            ? "—"
+            : $"{profile.LegalName}\nTax Code: {profile.TaxCode}\n{profile.Address}\n{profile.Email} · {profile.Phone}\n" +
+              string.Join(" · ", profile.AdditionalFields.Select(pair => $"{pair.Key}: {pair.Value}"));
+        permissionValue.Text = snapshot.AuthorizationContext is null
+            ? "—"
+            : string.Join(", ", snapshot.AuthorizationContext.PermissionCodes.OrderBy(code => code.Value));
+        capabilityValue.Text = snapshot.AuthorizationContext is null
+            ? "—"
+            : string.Join(", ", snapshot.AuthorizationContext.CapabilityCodes.OrderBy(code => code.Value));
+        RefreshRequirementResolution();
+    }
+
+    private void RefreshRequirementResolution()
+    {
+        var behavior = unauthorizedBehaviorSelector.SelectedItem is UnauthorizedBehavior selected
+            ? selected
+            : UnauthorizedBehavior.Disable;
+        var requirement = new PresentationRequirement(new PermissionCode("DATA.EDIT"), null, behavior);
+        resolutionValue.Text = AuthorizationPresentationResolver.Resolve(
+            requirement, companyScope.Snapshot.AuthorizationContext).ToString();
     }
 
     private void WorkspaceSelectionChanged(object? sender, SelectionChangedEventArgs e)
@@ -224,6 +344,14 @@ public sealed partial class MainWindow : Window
         languageLabel.Text = localization.Get(new("Demo.Language"));
         stateLabel.Text = localization.Get(new("Demo.State"));
         iconLabel.Text = localization.Get(new("Demo.IconSamples"));
+        companyLabel.Text = localization.Get(new("Demo.Company"));
+        currentCompanyLabel.Text = localization.Get(new("Demo.CurrentCompany"));
+        profileLabel.Text = localization.Get(new("Demo.CompanyProfile"));
+        permissionLabel.Text = localization.Get(new("Demo.PermissionCodes"));
+        capabilityLabel.Text = localization.Get(new("Demo.CapabilityCodes"));
+        requirementLabel.Text = $"{localization.Get(new("Demo.Requirement"))}: PermissionCode=DATA.EDIT";
+        behaviorLabel.Text = localization.Get(new("Demo.UnauthorizedBehavior"));
+        resolutionLabel.Text = localization.Get(new("Demo.ResolvedPresentation"));
     }
 
     private static SemanticIconRegistry CreateDemoIconRegistry()
@@ -245,46 +373,75 @@ public sealed partial class MainWindow : Window
         smokeTimer.Start();
     }
 
-    private void AdvanceSmokeRun(object? sender, EventArgs e)
+    private async void AdvanceSmokeRun(object? sender, EventArgs e)
     {
-        if (smokeStep < workspaces.Count)
+        if (smokeAdvancing)
         {
-            workspaceSelector.SelectedIndex = smokeStep;
-            var result = workspaceHost.CurrentResult!;
-            Console.WriteLine($"SMOKE {workspaces[smokeStep].TemplateCode}: " +
-                              (result.IsSuccess ? "RESOLVED" : "SAFE_FAILURE"));
-        }
-        else if (smokeStep < workspaces.Count + 3)
-        {
-            if (smokeStep == workspaces.Count)
-            {
-                workspaceSelector.SelectedIndex = 2;
-            }
-
-            themeSelector.SelectedIndex = smokeStep - workspaces.Count;
-            EnsureSmokeWorkspacePreserved();
-            Console.WriteLine($"SMOKE THEME: {themeSelector.SelectedItem}");
-        }
-        else if (smokeStep < workspaces.Count + 5)
-        {
-            languageSelector.SelectedIndex = smokeStep - workspaces.Count - 3;
-            EnsureSmokeWorkspacePreserved();
-            Console.WriteLine($"SMOKE CULTURE: {languageSelector.SelectedItem}");
-        }
-        else if (smokeStep < workspaces.Count + 11)
-        {
-            stateSelector.SelectedIndex = smokeStep - workspaces.Count - 5;
-            Console.WriteLine($"SMOKE STATE: {stateSelector.SelectedItem}");
-        }
-        else
-        {
-            smokeTimer!.Stop();
-            Console.WriteLine("SMOKE CLEAN_EXIT: PASS");
-            Close();
             return;
         }
 
-        smokeStep++;
+        smokeAdvancing = true;
+        try
+        {
+            if (smokeStep < workspaces.Count)
+            {
+                workspaceSelector.SelectedIndex = smokeStep;
+                var result = workspaceHost.CurrentResult!;
+                Console.WriteLine($"SMOKE {workspaces[smokeStep].TemplateCode}: " +
+                                  (result.IsSuccess ? "RESOLVED" : "SAFE_FAILURE"));
+            }
+            else if (smokeStep < workspaces.Count + 3)
+            {
+                if (smokeStep == workspaces.Count)
+                {
+                    workspaceSelector.SelectedIndex = 2;
+                }
+
+                themeSelector.SelectedIndex = smokeStep - workspaces.Count;
+                EnsureSmokeWorkspacePreserved();
+                Console.WriteLine($"SMOKE THEME: {themeSelector.SelectedItem}");
+            }
+            else if (smokeStep < workspaces.Count + 5)
+            {
+                languageSelector.SelectedIndex = smokeStep - workspaces.Count - 3;
+                EnsureSmokeWorkspacePreserved();
+                Console.WriteLine($"SMOKE CULTURE: {languageSelector.SelectedItem}");
+            }
+            else if (smokeStep < workspaces.Count + 11)
+            {
+                stateSelector.SelectedIndex = smokeStep - workspaces.Count - 5;
+                Console.WriteLine($"SMOKE STATE: {stateSelector.SelectedItem}");
+            }
+            else if (smokeStep < workspaces.Count + 15)
+            {
+                var companyOffset = smokeStep - workspaces.Count - 11;
+                var companyIndex = companyOffset switch { 0 => 0, 1 => 1, 2 => 2, _ => 0 };
+                companySelector.SelectedIndex = companyIndex;
+                await companyScope.SwitchCompanyAsync(companyContext.AvailableCompanies[companyIndex].CompanyId);
+                EnsureSmokeCompanySwitchPreserved(companyIndex);
+                var snapshot = companyScope.Snapshot;
+                var resolved = AuthorizationPresentationResolver.Resolve(
+                    new PresentationRequirement(new PermissionCode("DATA.EDIT"), null, UnauthorizedBehavior.ReadOnly),
+                    snapshot.AuthorizationContext);
+                Console.WriteLine($"SMOKE COMPANY: {snapshot.Company.Code} {snapshot.Status} {resolved} " +
+                                  $"PROFILE={snapshot.ProfileResult!.Profile!.LegalName} " +
+                                  $"PERMISSIONS={snapshot.AuthorizationContext!.PermissionCodes.Count} " +
+                                  $"CAPABILITIES={snapshot.AuthorizationContext.CapabilityCodes.Count}");
+            }
+            else
+            {
+                smokeTimer!.Stop();
+                Console.WriteLine("SMOKE CLEAN_EXIT: PASS");
+                Close();
+                return;
+            }
+
+            smokeStep++;
+        }
+        finally
+        {
+            smokeAdvancing = false;
+        }
     }
 
     private void EnsureSmokeWorkspacePreserved()
@@ -296,5 +453,22 @@ public sealed partial class MainWindow : Window
         }
 
         Console.WriteLine("SMOKE WORKSPACE_PRESERVED: REPORT");
+    }
+
+    private void EnsureSmokeCompanySwitchPreserved(int expectedCompanyIndex)
+    {
+        EnsureSmokeWorkspacePreserved();
+        var expectedCompany = companyContext.AvailableCompanies[expectedCompanyIndex];
+        var snapshot = companyScope.Snapshot;
+        if (snapshot.Company.CompanyId != expectedCompany.CompanyId ||
+            snapshot.ProfileResult?.Profile?.CompanyId != expectedCompany.CompanyId ||
+            snapshot.AuthorizationContext?.CompanyId != expectedCompany.CompanyId ||
+            shellPresentation.Theme != ThemeMode.Dark ||
+            shellPresentation.CultureName != "en-US")
+        {
+            throw new InvalidOperationException("Company switch did not preserve shell state or published stale data.");
+        }
+
+        Console.WriteLine("SMOKE COMPANY_STATE_PRESERVED: THEME=Dark CULTURE=en-US WORKSPACE=REPORT");
     }
 }
