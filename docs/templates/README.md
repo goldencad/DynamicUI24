@@ -2,7 +2,7 @@
 
 Setup, DataEntry, Report, HistoryDocument, Dashboard, and Signing are independently registered modules. In Task 1 each owns a minimal `IDynamicTemplate` implementation and registration entry point; no module references another template.
 
-The modules begin with identity, version, capability declarations, validation, and generic descriptors. The Setup module includes the Task 9 [specialized Setup designers](setup/OVERVIEW.md) for catalogs, workspaces, columns, variables, and formula metadata; unrelated designer modules remain later work.
+The modules begin with identity, version, capability declarations, validation, and generic descriptors. The Setup module includes the Task 9 [specialized Setup designers](setup/OVERVIEW.md) for catalogs, workspaces, columns, variables, and formula metadata. DataEntry includes the Task 10A [Grid Core](data-entry/OVERVIEW.md).
 
 ## Add a new template
 

@@ -16,6 +16,7 @@ using DynamicUI24.Core.ApplicationMenu;
 using DynamicUI24.Core.Ribbon;
 using DynamicUI24.Core.Templates;
 using DynamicUI24.Core.Setup;
+using DynamicUI24.Core.DataEntry;
 using DynamicUI24.Shared.Presentation;
 
 namespace DynamicUI24.Demo;
@@ -31,6 +32,8 @@ public sealed partial class MainWindow : Window
     private readonly SemanticIconRegistry iconRegistry;
     private readonly DynamicUI24.Avalonia.DynamicWorkspaceHost workspaceHost;
     private readonly SetupWorkspaceHost setupWorkspaceHost;
+    private readonly DemoDataEntryProvider dataEntryProvider;
+    private readonly DataEntryGridHost dataEntryGridHost;
     private readonly SharedStateView stateView;
     private readonly ICompanyContextProvider companyContext;
     private readonly CompanyScopeCoordinator companyScope;
@@ -104,7 +107,19 @@ public sealed partial class MainWindow : Window
         setupWorkspaceHost = new SetupWorkspaceHost(DemoSetup.Categories, setupProvider,
             new SpecializedSetupValidator(setupProvider, composition.Registry), DemoSetup.CreateEditors(composition.Registry, setupProvider), localization, iconRegistry,
             companyContext.CurrentCompany, appearance: appearanceService);
+        dataEntryProvider = new DemoDataEntryProvider();
+        dataEntryGridHost = new DataEntryGridHost(new DataEntryGridRuntime(DemoDataEntry.CreateDefinition(), dataEntryProvider),
+            localization, appearanceService);
+        dataEntryGridHost.Changed += (_, _) =>
+        {
+            if (workspaceHost.CurrentDefinition?.WorkspaceId == "data-entry-demo")
+            {
+                RefreshRibbon();
+                RefreshActionBars();
+            }
+        };
         workspaceHost.RegisterViewFactory(StandardTemplateCodes.Setup, _ => setupWorkspaceHost);
+        workspaceHost.RegisterViewFactory(StandardTemplateCodes.DataEntry, _ => dataEntryGridHost);
         workspaceNavigation = new WorkspaceNavigationService(workspaces);
         workspaceNavigation.NavigationChanged += (_, args) =>
         {
@@ -406,6 +421,8 @@ public sealed partial class MainWindow : Window
         RefreshActionBars();
         RefreshTree(snapshot);
         setupWorkspaceHost.UpdateContext(snapshot.Company, snapshot.AuthorizationContext);
+        if (workspaceHost.CurrentDefinition?.WorkspaceId == "data-entry-demo")
+            _ = LoadDataEntryAsync(snapshot.Company, snapshot.AuthorizationContext);
         _ = RefreshNotificationsAsync();
     }
 
@@ -437,6 +454,8 @@ public sealed partial class MainWindow : Window
         RefreshRibbon();
         RefreshActionBars();
         treeHost.SelectWorkspace(definition.WorkspaceId);
+        if (definition.WorkspaceId == "data-entry-demo")
+            _ = LoadDataEntryAsync(companyContext.CurrentCompany, companyScope.Snapshot.AuthorizationContext);
         _ = RefreshNotificationsAsync();
     }
 
@@ -483,7 +502,7 @@ public sealed partial class MainWindow : Window
         workspace,
         workspace.TemplateCode,
         companyScope.Snapshot.AuthorizationContext,
-        new RibbonSelectionContext(selectionSelector.SelectedItem is int count ? count : 0));
+        new RibbonSelectionContext(CurrentSelectionCount(workspace)));
 
     private void RefreshRibbon()
     {
@@ -496,16 +515,16 @@ public sealed partial class MainWindow : Window
         workspace,
         workspace.TemplateCode,
         companyScope.Snapshot.AuthorizationContext,
-        new ActionSelectionContext(selectionSelector.SelectedItem is int count ? count : 0),
+        new ActionSelectionContext(CurrentSelectionCount(workspace)),
         shellPresentation.State,
         CreateActionBarStatus(workspace));
 
     private ActionBarStatus CreateActionBarStatus(WorkspaceDefinition workspace)
     {
-        var selected = selectionSelector.SelectedItem is int count ? count : 0;
+        var selected = CurrentSelectionCount(workspace);
         return workspace.WorkspaceId switch
         {
-            "data-entry-demo" => new(125, 125, selected, 2, 0, 3, false),
+            "data-entry-demo" => dataEntryGridHost.Runtime.Status,
             "dashboard-demo" => new(125, 125, selected, 0, 1, actionRefreshCount, false),
             _ => new(0, 0, selected, 0, 0, 0, shellPresentation.State.Kind == PresentationStateKind.ReadOnly),
         };
@@ -565,10 +584,18 @@ public sealed partial class MainWindow : Window
     private void RefreshFromActionBar()
     {
         actionRefreshCount++;
-        if (workspaceHost.CurrentDefinition is { } workspace) workspaceHost.ShowWorkspace(workspace);
+        if (workspaceHost.CurrentDefinition is { WorkspaceId: "data-entry-demo" }) _ = dataEntryGridHost.RefreshAsync();
+        else if (workspaceHost.CurrentDefinition is { } workspace) workspaceHost.ShowWorkspace(workspace);
         shellPresentation.StatusMessage = $"{localization.Get(new("ActionBar.RefreshComplete"))} #{actionRefreshCount}";
         RefreshActionBars();
     }
+
+    private int CurrentSelectionCount(WorkspaceDefinition workspace) => workspace.WorkspaceId == "data-entry-demo"
+        ? dataEntryGridHost.Runtime.SelectionCount
+        : selectionSelector.SelectedItem is int count ? count : 0;
+
+    private Task LoadDataEntryAsync(CompanyDescriptor company, EffectiveAuthorizationContext? effectiveAuthorization) =>
+        dataEntryGridHost.LoadAsync(new(company, "data-entry-demo"), effectiveAuthorization);
 
     private void NavigateFromRibbon(WorkspaceDefinition workspace)
     {
@@ -757,6 +784,7 @@ public sealed partial class MainWindow : Window
                 smokeTimer!.Stop();
                 await RunRibbonSmokeAsync();
                 await RunActionBarSmokeAsync();
+                await RunDataEntrySmokeAsync();
                 await RunNotificationSmokeAsync();
                 await RunSetupSmokeAsync();
                 Console.WriteLine("SMOKE CLEAN_EXIT: PASS");
@@ -841,27 +869,34 @@ public sealed partial class MainWindow : Window
         var navigate = await bottomActionBar.ExecuteActionAsync("OPEN_DATA");
         if (navigate.Status != ActionCommandResultStatus.Success || workspaceHost.CurrentDefinition?.WorkspaceId != "data-entry-demo")
             throw new InvalidOperationException("Action Bar navigation failed.");
+        await LoadDataEntryAsync(companyContext.CurrentCompany, companyScope.Snapshot.AuthorizationContext);
         Console.WriteLine("SMOKE ACTION_NAVIGATE: PASS");
 
-        selectionSelector.SelectedItem = 0;
+        dataEntryGridHost.Runtime.Select([]);
         RefreshActionBars();
         if (ActionBarAction(topActionBar, "EDIT").IsEnabled)
             throw new InvalidOperationException("Selection action must be disabled at zero selection.");
-        selectionSelector.SelectedItem = 1;
+        dataEntryGridHost.Runtime.Select([dataEntryGridHost.Runtime.Rows[0].RowKey]);
         RefreshActionBars();
         if (!ActionBarAction(topActionBar, "EDIT").IsEnabled || bottomActionBar.ResolvedActionBar?.Status?.SelectedRows != 1)
             throw new InvalidOperationException("Selection state or Bottom Action Bar status was not refreshed.");
         Console.WriteLine("SMOKE ACTION_SELECTION_STATUS: PASS");
 
         await companyScope.SwitchCompanyAsync(DemoCompanyData.CompanyAId);
+        await LoadDataEntryAsync(companyContext.CurrentCompany, companyScope.Snapshot.AuthorizationContext);
+        dataEntryGridHost.Runtime.Select([dataEntryGridHost.Runtime.Rows[0].RowKey]);
         RefreshActionBars();
         if (!ActionBarAction(topActionBar, "EDIT").IsEnabled)
             throw new InvalidOperationException("Company A Action Bar permission was not enabled.");
         await companyScope.SwitchCompanyAsync(DemoCompanyData.CompanyBId);
+        await LoadDataEntryAsync(companyContext.CurrentCompany, companyScope.Snapshot.AuthorizationContext);
+        dataEntryGridHost.Runtime.Select([dataEntryGridHost.Runtime.Rows[0].RowKey]);
         RefreshActionBars();
         if (ActionBarAction(topActionBar, "EDIT").IsEnabled)
             throw new InvalidOperationException("Company B Action Bar permission was not disabled.");
         await companyScope.SwitchCompanyAsync(DemoCompanyData.CompanyCId);
+        await LoadDataEntryAsync(companyContext.CurrentCompany, companyScope.Snapshot.AuthorizationContext);
+        dataEntryGridHost.Runtime.Select([dataEntryGridHost.Runtime.Rows[0].RowKey]);
         RefreshActionBars();
         if (ActionBarAction(topActionBar, "EDIT").IsEnabled)
             throw new InvalidOperationException("Unavailable Company authorization did not fail closed for Action Bars.");
@@ -890,6 +925,71 @@ public sealed partial class MainWindow : Window
 
     private static ResolvedAction ActionBarAction(DynamicActionBarHost host, string actionCode) =>
         host.ResolvedActionBar!.Actions.Single(x => x.Definition.ActionCode == actionCode);
+
+    private async Task RunDataEntrySmokeAsync()
+    {
+        await companyScope.SwitchCompanyAsync(DemoCompanyData.CompanyAId);
+        workspaceSelector.SelectedIndex = workspaces.ToList().FindIndex(x => x.WorkspaceId == "data-entry-demo");
+        await LoadDataEntryAsync(companyContext.CurrentCompany, companyScope.Snapshot.AuthorizationContext);
+        var runtime = dataEntryGridHost.Runtime;
+        if (workspaceHost.Content != dataEntryGridHost || dataEntryGridHost.RenderedColumnCount < 10 ||
+            dataEntryGridHost.RenderedRowCount < 20 || runtime.ResolvedDefinition.Columns.Any(x =>
+                x.Definition.VariableCode == new VariableCode("PRIVILEGED_NOTE") && x.IsVisible))
+            throw new InvalidOperationException("Dynamic DataEntry columns, rows, or permission-hidden values failed.");
+        Console.WriteLine($"SMOKE GRID_RENDER: PASS COLUMNS={dataEntryGridHost.RenderedColumnCount} ROWS={dataEntryGridHost.RenderedRowCount}");
+
+        var first = runtime.Rows[0]; var second = runtime.Rows[1];
+        runtime.Select([first.RowKey]); RefreshActionBars();
+        if (!ActionBarAction(topActionBar, "EDIT").IsEnabled || runtime.SelectionCount != 1)
+            throw new InvalidOperationException("Single-row selection did not feed the Action Bar.");
+        runtime.Select([first.RowKey, second.RowKey]); RefreshActionBars();
+        if (ActionBarAction(topActionBar, "EDIT").IsEnabled || runtime.SelectionCount != 2)
+            throw new InvalidOperationException("Multi-row selection did not feed the Action Bar.");
+        Console.WriteLine("SMOKE GRID_SELECTION_ACTION_STATUS: SINGLE MULTIPLE ROWKEY PASS");
+
+        var quantity = new VariableCode("QUANTITY");
+        if (!dataEntryGridHost.BeginEdit(first.RowKey, quantity) || dataEntryGridHost.SetCandidate("invalid")?.Code != "GRID_VALUE_TYPE_INVALID")
+            throw new InvalidOperationException("Invalid integer candidate was accepted.");
+        dataEntryGridHost.SetCandidate("42");
+        if (!(await dataEntryGridHost.CommitEditAsync()).IsSuccess || !Equals(runtime.GetValue(first.RowKey, quantity, out _), 42))
+            throw new InvalidOperationException("Single-cell commit failed.");
+        var name = new VariableCode("ITEM_NAME"); var originalName = runtime.GetValue(first.RowKey, name, out _);
+        dataEntryGridHost.BeginEdit(first.RowKey, name); dataEntryGridHost.SetCandidate("Cancelled candidate"); dataEntryGridHost.CancelEdit();
+        if (!Equals(runtime.GetValue(first.RowKey, name, out _), originalName) ||
+            dataEntryGridHost.BeginEdit(first.RowKey, new("TOTAL")) || dataEntryGridHost.BeginEdit(first.RowKey, new("UPDATED_AT")))
+            throw new InvalidOperationException("Cancel or formula/system read-only behavior failed.");
+        Console.WriteLine("SMOKE GRID_EDIT: INPUT_INVALID_COMMIT_CANCEL FORMULA_SYSTEM_READONLY PASS");
+
+        var selectedKey = first.RowKey; runtime.Select([selectedKey]);
+        await dataEntryGridHost.SortAsync(new("ITEM_CODE"), GridSortDirection.Descending);
+        if (!runtime.SelectedRowKeys.Contains(selectedKey) || runtime.Rows[0].RowKey == selectedKey)
+            throw new InvalidOperationException("Sort did not preserve RowKey selection.");
+        await dataEntryGridHost.FilterAsync(new(new("ITEM_CODE"), GridFilterOperator.Contains, "-00"));
+        if (runtime.VisibleRows is <= 0 or >= 30 || !runtime.SelectedRowKeys.Contains(selectedKey))
+            throw new InvalidOperationException("Filter/count/selection behavior failed.");
+        await dataEntryGridHost.ClearFilterAsync();
+        Console.WriteLine("SMOKE GRID_SORT_FILTER_STATUS: ASC_DESC_CONTAINS_CLEAR PASS");
+
+        localization.TrySetCulture("vi-VN"); themeSelector.SelectedItem = ThemeMode.System;
+        localization.TrySetCulture("en-US"); themeSelector.SelectedItem = ThemeMode.Light; themeSelector.SelectedItem = ThemeMode.Dark;
+        if (!runtime.SelectedRowKeys.Contains(selectedKey)) throw new InvalidOperationException("Presentation changes lost grid selection.");
+        Console.WriteLine("SMOKE GRID_LOCALIZATION_THEME_KEYBOARD_ACCESSIBILITY: VI_EN_SYSTEM_LIGHT_DARK PASS");
+
+        dataEntryProvider.SimulateFailure = true; await dataEntryGridHost.RefreshAsync();
+        if (runtime.State != GridProviderState.Error || runtime.DiagnosticCode != "GRID_PROVIDER_FAILED")
+            throw new InvalidOperationException("Provider failure was not isolated.");
+        dataEntryProvider.SimulateFailure = false; await dataEntryGridHost.RefreshAsync();
+        Console.WriteLine("SMOKE GRID_PROVIDER_ERROR: SAFE_FAILURE_RECOVERY PASS");
+
+        var companyA = companyContext.AvailableCompanies.Single(x => x.CompanyId == DemoCompanyData.CompanyAId);
+        var companyB = companyContext.AvailableCompanies.Single(x => x.CompanyId == DemoCompanyData.CompanyBId);
+        var staleA = dataEntryGridHost.LoadAsync(new(companyA, "data-entry-demo"), companyScope.Snapshot.AuthorizationContext);
+        var currentB = dataEntryGridHost.LoadAsync(new(companyB, "data-entry-demo"), companyScope.Snapshot.AuthorizationContext);
+        await Task.WhenAll(staleA, currentB);
+        if (runtime.Rows.Any(x => !x.RowKey.Value.StartsWith($"{companyB.CompanyId.Value}:", StringComparison.Ordinal)))
+            throw new InvalidOperationException("Stale Company A response replaced Company B rows.");
+        Console.WriteLine("SMOKE GRID_COMPANY_STALE_RESPONSE: A_TO_B_BLOCKED PASS");
+    }
 
     private async Task RunNotificationSmokeAsync()
     {

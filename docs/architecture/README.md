@@ -5,6 +5,8 @@
 - [Design tokens](DESIGN-TOKENS.md)
 - [Icon registry](ICON-REGISTRY.md)
 - [Localization](LOCALIZATION.md)
+- [DataEntry Grid](DATAENTRY-GRID.md)
+- [Grid data-provider boundary](GRID-DATA-PROVIDER.md)
 - [Application Menu](APPLICATION-MENU.md)
 - [Application Menu contributors](APPLICATION-MENU-CONTRIBUTORS.md)
 - [Application shell](APP-SHELL.md)

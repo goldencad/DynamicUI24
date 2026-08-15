@@ -3,6 +3,7 @@
 - [Shared UI/UX design system](../design-system/OVERVIEW.md)
 - [Application branding](BRANDING.md)
 - [Company context integration](COMPANY-CONTEXT-INTEGRATION.md)
+- [DataEntry integration](DATAENTRY-INTEGRATION.md)
 - [Permission and capability mapping](PERMISSION-CAPABILITY-MAPPING.md)
 - [Ribbon integration](RIBBON-INTEGRATION.md)
 - [Ribbon metadata example](RIBBON-METADATA-EXAMPLE.md)
