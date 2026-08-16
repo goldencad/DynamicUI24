@@ -21,6 +21,7 @@ using DynamicUI24.Core.DataEntry;
 using DynamicUI24.Core.ImportExport;
 using DynamicUI24.Core.Privacy;
 using DynamicUI24.Core.Search;
+using DynamicUI24.Core.Context;
 using DynamicUI24.Shared.Presentation;
 
 namespace DynamicUI24.Demo;
@@ -61,6 +62,10 @@ public sealed partial class MainWindow : Window
     private readonly NotificationActionBarAdapter notificationActionBars = new();
     private readonly NotificationActionDispatcher notificationDispatcher;
     private readonly NotificationHost notificationHost;
+    private readonly ContextPanelCoordinator contextCoordinator;
+    private readonly ContextPanelHost contextPanelHost;
+    private readonly ContextItemPresenter contextItemPresenter;
+    private readonly BreadcrumbHost breadcrumbHost;
     private readonly TreeDefinition treeDefinition = DemoTree.Create();
     private readonly ComboBox workspaceSelector = new();
     private readonly ComboBox themeSelector = new();
@@ -121,6 +126,8 @@ public sealed partial class MainWindow : Window
         privacyState = new PrivacyStateService();
         var privacyResolver = new PrivacyPolicyResolver();
         var sensitiveValuePresenter = new SensitiveValuePresenter();
+        contextItemPresenter = new ContextItemPresenter(privacyResolver, sensitiveValuePresenter);
+        contextCoordinator = new ContextPanelCoordinator([new DemoContextProvider()]);
         dataEntryGridHost = new DataEntryGridHost(new DataEntryGridRuntime(DemoDataEntry.CreateDefinition(), dataEntryProvider,
                 privacyResolver: privacyResolver, privacyState: privacyState, sensitiveValuePresenter: sensitiveValuePresenter),
             localization, appearanceService, privacyResolver: privacyResolver, privacyState: privacyState,
@@ -143,6 +150,7 @@ public sealed partial class MainWindow : Window
             {
                 RefreshRibbon();
                 RefreshActionBars();
+                _ = RefreshContextAsync();
             }
         };
         workspaceHost.RegisterViewFactory(StandardTemplateCodes.Setup, _ => setupWorkspaceHost);
@@ -161,6 +169,17 @@ public sealed partial class MainWindow : Window
             localization,
             iconRegistry,
             exitService);
+        contextPanelHost = new ContextPanelHost(localization);
+        contextPanelHost.CloseRequested += (_, _) => shell.IsContextPanelOpen = false;
+        shell.ContextPanelContent = contextPanelHost;
+        shell.IsContextPanelOpen = true;
+        breadcrumbHost = new BreadcrumbHost(localization);
+        breadcrumbHost.ItemActivated += async (_, item) =>
+        {
+            if (item.NavigationTarget is not null) await workspaceNavigation.NavigateAsync(item.NavigationTarget);
+        };
+        shell.BreadcrumbContent = breadcrumbHost;
+        contextCoordinator.Changed += (_, result) => Dispatcher.UIThread.Post(() => ShowContext(result));
         var menuComposer = new ApplicationMenuComposer();
         menuComposer.Register(new DemoPreferencesContributor());
         menuComposer.Register(new PrivacyMenuContributor());
@@ -264,7 +283,7 @@ public sealed partial class MainWindow : Window
 
         companyScope.SnapshotChanged += CompanyScopeSnapshotChanged;
         Opened += async (_, _) => await companyScope.InitializeAsync();
-        Closed += (_, _) => companyScope.Dispose();
+        Closed += (_, _) => { contextCoordinator.Dispose(); companyScope.Dispose(); };
 
         if (Program.IsSmokeRun)
         {
@@ -465,6 +484,7 @@ public sealed partial class MainWindow : Window
 
     private void ApplyCompanySnapshot(CompanyScopeSnapshot snapshot)
     {
+        contextCoordinator.Invalidate();
         InvalidateSearch();
         privacyState.InvalidateContext(snapshot.Company.CompanyId.Value, workspaceHost.CurrentDefinition?.WorkspaceId);
         currentCompanyValue.Text = $"{snapshot.Company.DisplayName} · CompanyId={snapshot.Company.CompanyId}";
@@ -487,6 +507,7 @@ public sealed partial class MainWindow : Window
         setupWorkspaceHost.UpdateContext(snapshot.Company, snapshot.AuthorizationContext);
         if (workspaceHost.CurrentDefinition?.WorkspaceId == "data-entry-demo")
             _ = LoadDataEntryAsync(snapshot.Company, snapshot.AuthorizationContext);
+        _ = RefreshContextAsync();
         _ = RefreshNotificationsAsync();
     }
 
@@ -523,9 +544,11 @@ public sealed partial class MainWindow : Window
             : $"{definition.TemplateCode} · SAFE FAILURE";
         RefreshRibbon();
         RefreshActionBars();
+        RefreshBreadcrumb(definition);
         treeHost.SelectWorkspace(definition.WorkspaceId);
         if (definition.WorkspaceId == "data-entry-demo")
             _ = LoadDataEntryAsync(companyContext.CurrentCompany, companyScope.Snapshot.AuthorizationContext);
+        _ = RefreshContextAsync();
         _ = RefreshNotificationsAsync();
     }
 
@@ -664,6 +687,41 @@ public sealed partial class MainWindow : Window
     {
         var index = workspaces.ToList().FindIndex(x => x.WorkspaceId.Equals(workspace.WorkspaceId, StringComparison.OrdinalIgnoreCase));
         if (index >= 0) workspaceSelector.SelectedIndex = index;
+    }
+
+    private async Task RefreshContextAsync()
+    {
+        var workspace = workspaceHost.CurrentDefinition;
+        var selected = workspace?.WorkspaceId == "data-entry-demo"
+            ? dataEntryGridHost.Runtime.SelectedRowKeys.FirstOrDefault() : default;
+        var rowKey = string.IsNullOrWhiteSpace(selected.Value) ? null : selected.Value;
+        await contextCoordinator.ResolveAsync("DEMO.CONTEXT", (generation, token) => new(
+            companyContext.CurrentCompany.CompanyId, workspace?.WorkspaceId, workspace?.TemplateCode.Value,
+            workspace?.WorkspaceId, new ContextSelection(RowKey: rowKey),
+            new HelpContextCode(workspace?.WorkspaceId == "data-entry-demo" ? "DATAENTRY.ROW" : "SHELL.WORKSPACE"),
+            localization.CurrentCulture, privacyState.RequestedMode,
+            companyScope.Snapshot.AuthorizationContext, generation, token));
+    }
+
+    private void ShowContext(ContextPanelResult result)
+    {
+        var workspace = workspaceHost.CurrentDefinition;
+        var request = new ContextPanelRequest(companyContext.CurrentCompany.CompanyId, workspace?.WorkspaceId,
+            workspace?.TemplateCode.Value, workspace?.WorkspaceId, new(), null,
+            localization.CurrentCulture, privacyState.RequestedMode,
+            companyScope.Snapshot.AuthorizationContext, result.Generation, CancellationToken.None);
+        contextPanelHost.ShowResult(result, item => contextItemPresenter.Present(item, request,
+            new MandatoryPrivacyPolicy(ProtectConfidential: true, ProtectRestricted: true)).DisplayValue);
+    }
+
+    private void RefreshBreadcrumb(WorkspaceDefinition definition)
+    {
+        breadcrumbHost.Path = new BreadcrumbPath([
+            new("HOME", "Home", NavigationTarget: "dashboard-demo"),
+            new("DATA", "Data", NavigationTarget: "dashboard-demo"),
+            new("WORKSPACE", definition.DisplayName, NavigationTarget: definition.WorkspaceId),
+            new("CURRENT", definition.DisplayName, IsCurrent: true),
+        ]);
     }
 
     private void RefreshFromActionBar()
@@ -879,6 +937,8 @@ public sealed partial class MainWindow : Window
                 await RunActionBarSmokeAsync();
                 smokeStage = "DATA_ENTRY";
                 await RunDataEntrySmokeAsync();
+                smokeStage = "CONTEXT";
+                await RunContextSmokeAsync();
                 smokeStage = "IMPORT_EXPORT";
                 await RunImportExportSmokeAsync();
                 smokeStage = "NOTIFICATIONS";
@@ -1293,6 +1353,32 @@ public sealed partial class MainWindow : Window
         if (runtime.Rows.Any(x => !x.RowKey.Value.StartsWith($"{companyB.CompanyId.Value}:", StringComparison.Ordinal)))
             throw new InvalidOperationException("Stale Company A response replaced Company B rows.");
         Console.WriteLine("SMOKE GRID_COMPANY_STALE_RESPONSE: A_TO_B_BLOCKED PASS");
+    }
+
+    private async Task RunContextSmokeAsync()
+    {
+        workspaceSelector.SelectedIndex = workspaces.ToList().FindIndex(x => x.WorkspaceId == "data-entry-demo");
+        await dataEntryGridHost.RequestViewportAsync(90_000);
+        var runtime = dataEntryGridHost.Runtime;
+        var first = runtime.Rows[0];
+        runtime.Select([first.RowKey]);
+        await RefreshContextAsync();
+        if (contextCoordinator.Current?.ContextKey.Contains(first.RowKey.Value, StringComparison.Ordinal) != true ||
+            runtime.Rows.Length > runtime.ViewportOptions.MaximumMaterializedRows)
+            throw new InvalidOperationException("Context did not resolve the 90K selection by bounded RowKey.");
+        var savedWidth = shell.ResizeContextPanel(410);
+        shell.IsContextPanelOpen = false; shell.IsContextPanelOpen = true;
+        if (Math.Abs(shell.SplitLayout.Context.NavigationWidth - savedWidth) > .1)
+            throw new InvalidOperationException("Context width was not preserved across close/reopen.");
+        var breadcrumbPath = breadcrumbHost.Path;
+        if (breadcrumbPath is null || breadcrumbPath.Items.Length < 3 || !breadcrumbPath.Items[^1].IsCurrent)
+            throw new InvalidOperationException("Breadcrumb current path was not synchronized.");
+        var help = await new DemoHelpProvider().GetHelpAsync(new(new("DATAENTRY.ROW"), localization.CurrentCulture,
+            companyContext.CurrentCompany.CompanyId, "data-entry-demo", companyScope.Snapshot.AuthorizationContext,
+            privacyState.RequestedMode, 1, CancellationToken.None));
+        if (help is null) throw new InvalidOperationException("Local contextual help did not resolve.");
+        Console.WriteLine($"SMOKE CONTEXT_S2: ROWKEY={first.RowKey} MATERIALIZED={runtime.Rows.Length} WIDTH={savedWidth} BREADCRUMB=PASS HELP=LOCAL PASS");
+        await dataEntryGridHost.RequestViewportAsync(0);
     }
 
     private async Task RunImportExportSmokeAsync()

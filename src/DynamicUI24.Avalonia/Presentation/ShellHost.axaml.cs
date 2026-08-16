@@ -14,6 +14,7 @@ public sealed partial class ShellHost : UserControl
     private readonly ShellPresentation presentation;
     private readonly ILocalizationService localization;
     private readonly IApplicationExitService exitService;
+    private readonly ShellSplitLayoutState splitLayout = new();
 
     public ShellHost()
         : this(
@@ -41,6 +42,11 @@ public sealed partial class ShellHost : UserControl
         localization.CultureChanged += LocalizationChanged;
         RefreshText();
         SizeChanged += (_, _) => RefreshResponsiveSearch();
+        ContextSplitter.PropertyChanged += (_, args) =>
+        {
+            if (args.Property == BoundsProperty && ContextRegion.IsVisible && ShellRegions.ColumnDefinitions[4].Width.IsAbsolute)
+                splitLayout.Context.Resize(ShellRegions.ColumnDefinitions[4].Width.Value);
+        };
         KeyDown += (_, e) =>
         {
             if (e.Key == Key.K && e.KeyModifiers.HasFlag(OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control))
@@ -60,8 +66,29 @@ public sealed partial class ShellHost : UserControl
                 IsApplicationMenuOpen = false;
                 e.Handled = true;
             }
+            if (e.Key == Key.F1) { IsContextPanelOpen = true; e.Handled = true; }
         };
     }
+
+    public Control? BreadcrumbContent { get => BreadcrumbPresenter.Content as Control; set => BreadcrumbPresenter.Content = value; }
+    public Control? ContextPanelContent { get => ContextPresenter.Content as Control; set => ContextPresenter.Content = value; }
+    public bool IsContextPanelOpen
+    {
+        get => ContextRegion.IsVisible;
+        set
+        {
+            ContextRegion.IsVisible = value; ContextSplitter.IsVisible = value;
+            ShellRegions.ColumnDefinitions[3].Width = new(value ? splitLayout.SplitterWidth : 0, GridUnitType.Pixel);
+            ShellRegions.ColumnDefinitions[4].Width = new(value ? splitLayout.BoundContextWidth(splitLayout.Context.NavigationWidth, Bounds.Width) : 0, GridUnitType.Pixel);
+        }
+    }
+    public double ResizeContextPanel(double width)
+    {
+        var bounded = splitLayout.BoundContextWidth(width, Bounds.Width);
+        if (IsContextPanelOpen) ShellRegions.ColumnDefinitions[4].Width = new(bounded, GridUnitType.Pixel);
+        return bounded;
+    }
+    public ShellSplitLayoutState SplitLayout => splitLayout;
 
     public Control? WorkspaceContent
     {

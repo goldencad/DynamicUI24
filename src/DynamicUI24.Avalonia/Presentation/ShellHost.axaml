@@ -32,13 +32,24 @@
       </Border>
       <ContentControl Grid.Row="1" x:Name="RibbonPresenter" />
       <ContentControl Grid.Row="2" x:Name="NotificationPresenter" />
-      <Grid Grid.Row="3" ColumnDefinitions="260,5,*">
+      <Grid Grid.Row="3" x:Name="ShellRegions" ColumnDefinitions="260,5,*,0,0">
         <Border Grid.Column="0" Background="{DynamicResource DuiSurfaceRaisedBrush}"
                 BorderBrush="{DynamicResource DuiBorderBrush}" BorderThickness="0,0,1,0">
           <ContentControl x:Name="NavigationPresenter" />
         </Border>
         <GridSplitter Grid.Column="1" ResizeDirection="Columns" Background="{DynamicResource DuiBorderBrush}" />
-        <ContentControl Grid.Column="2" x:Name="WorkspacePresenter" Margin="18" />
+        <Grid Grid.Column="2" RowDefinitions="Auto,*" MinWidth="420">
+          <ContentControl x:Name="BreadcrumbPresenter" Margin="18,10,18,0" />
+          <ContentControl Grid.Row="1" x:Name="WorkspacePresenter" Margin="18" />
+        </Grid>
+        <GridSplitter Grid.Column="3" x:Name="ContextSplitter" ResizeDirection="Columns"
+                      ResizeBehavior="PreviousAndNext" Background="{DynamicResource DuiBorderBrush}"
+                      IsVisible="False" />
+        <Border Grid.Column="4" x:Name="ContextRegion" IsVisible="False"
+                Background="{DynamicResource DuiSurfaceRaisedBrush}"
+                BorderBrush="{DynamicResource DuiBorderBrush}" BorderThickness="1,0,0,0">
+          <ContentControl x:Name="ContextPresenter" />
+        </Border>
       </Grid>
       <Border Grid.Row="3" x:Name="ApplicationMenuOverlay" IsVisible="False"
               Background="{DynamicResource DuiSurfaceBrush}"
