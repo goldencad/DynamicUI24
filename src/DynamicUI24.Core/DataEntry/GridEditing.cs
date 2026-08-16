@@ -5,7 +5,7 @@ using DynamicUI24.Core.Setup;
 namespace DynamicUI24.Core.DataEntry;
 
 public enum PasteCommitMode { Atomic, PartialValid }
-public enum GridEditSourceAction { SingleCell, Paste, Cut, Clear, Undo, Redo }
+public enum GridEditSourceAction { SingleCell, Paste, Cut, Clear, FillDown, FillRight, Undo, Redo }
 public enum GridEditCommitState { Pending, Committed, Rejected }
 public enum GridCellValidationState { Valid, Invalid }
 

@@ -1200,6 +1200,32 @@ public sealed partial class MainWindow : Window
         Console.WriteLine($"SMOKE GRID_100K_INITIAL: TOTAL={runtime.TotalRows} MATERIALIZED={runtime.Rows.Length} PASS");
 
         var first = runtime.Rows[0]; var second = runtime.Rows[1];
+        var layoutRows = runtime.Rows.Length;
+        var code = new VariableCode("ITEM_CODE");
+        runtime.SelectCell(new(first.RowKey, code), runtime.ViewportStartIndex);
+        if (!dataEntryGridHost.ResizeColumn(code, 175) || !dataEntryGridHost.ReorderColumn(code, 2) ||
+            runtime.ActiveCell != new GridCellAddress(first.RowKey, code) || runtime.Rows.Length != layoutRows)
+            throw new InvalidOperationException("Resize/reorder changed semantic active cell or rematerialized rows.");
+        if (!dataEntryGridHost.SetColumnPinned(code, true) || runtime.PresentedColumns[0].VariableCode != code ||
+            !dataEntryGridHost.SetColumnPinned(code, false))
+            throw new InvalidOperationException("Pin/unpin failed.");
+        if (!dataEntryGridHost.SetColumnVisible(code, false) || runtime.ActiveCell?.VariableCode == code ||
+            !dataEntryGridHost.SetColumnVisible(code, true))
+            throw new InvalidOperationException("Hide/show or active-cell relocation failed.");
+        var preferenceStore = new InMemoryGridViewPreferenceStore();
+        var preferenceScope = new GridPreferenceScope(GridPreferenceScopeKind.UserGrid, "demo-user", runtime.Definition.GridCode);
+        await runtime.SaveViewAsync(preferenceStore, preferenceScope);
+        dataEntryGridHost.ResetLayout();
+        await runtime.RestoreViewAsync(preferenceStore, preferenceScope);
+        if (runtime.PresentedColumns.Single(x => x.VariableCode == code).Width != 175 || runtime.Rows.Length != layoutRows)
+            throw new InvalidOperationException("Preference restore/reset changed rows or lost width.");
+        dataEntryGridHost.ResetLayout();
+        runtime.SelectAllCells();
+        if (!runtime.CellSelection.IsAllSelected || runtime.SelectedRanges.Length != 0 || runtime.Rows.Length != layoutRows)
+            throw new InvalidOperationException("Semantic select-all was not bounded.");
+        runtime.ClearCellSelection();
+        Console.WriteLine("SMOKE GRID_10E_LAYOUT: RESIZE REORDER HIDE SHOW PIN UNPIN RESET RESTORE SELECT_ALL_BOUNDED PASS");
+
         runtime.Select([first.RowKey]); RefreshActionBars();
         if (!ActionBarAction(topActionBar, "EDIT").IsEnabled || runtime.SelectionCount != 1)
             throw new InvalidOperationException("Single-row selection did not feed the Action Bar.");
@@ -1221,7 +1247,7 @@ public sealed partial class MainWindow : Window
             throw new InvalidOperationException("Cancel or formula/system read-only behavior failed.");
         Console.WriteLine("SMOKE GRID_EDIT: INPUT_INVALID_COMMIT_CANCEL FORMULA_SYSTEM_READONLY PASS");
 
-        var visible = runtime.ResolvedDefinition.Columns.Where(x => x.IsVisible).ToArray();
+        var visible = runtime.PresentedColumns.Select(x => x.Column).ToArray();
         var nameColumn = Array.FindIndex(visible, x => x.Definition.VariableCode == name);
         var quantityColumn = Array.FindIndex(visible, x => x.Definition.VariableCode == quantity);
         runtime.SelectCell(new(first.RowKey, name), runtime.ViewportStartIndex);
@@ -1236,7 +1262,8 @@ public sealed partial class MainWindow : Window
         var third = runtime.Rows[2]; var fourth = runtime.Rows[3];
         runtime.SelectCell(new(third.RowKey, name), runtime.ViewportStartIndex + 2);
         runtime.SelectCell(new(fourth.RowKey, quantity), runtime.ViewportStartIndex + 3, extend: true);
-        if ((await dataEntryGridHost.PasteSelectionAsync()).AppliedCellCount != 6 ||
+        var expectedClipboardCells = 2 * (Math.Abs(quantityColumn - nameColumn) + 1);
+        if ((await dataEntryGridHost.PasteSelectionAsync()).AppliedCellCount != expectedClipboardCells ||
             !Equals(runtime.GetValue(third.RowKey, name, out _), originalName))
             throw new InvalidOperationException("2x3 native clipboard paste failed.");
 
@@ -1244,7 +1271,10 @@ public sealed partial class MainWindow : Window
         await nativeClipboard.SetTextAsync("filled note");
         runtime.SelectCell(new(first.RowKey, notes), runtime.ViewportStartIndex);
         runtime.SelectCell(new(third.RowKey, notes), runtime.ViewportStartIndex + 2, extend: true);
-        if ((await dataEntryGridHost.PasteSelectionAsync()).AppliedCellCount != 3)
+        if ((await dataEntryGridHost.PasteSelectionAsync()).AppliedCellCount != 3 ||
+            (await dataEntryGridHost.FillDownAsync()).AppliedCellCount != 2 ||
+            (await dataEntryGridHost.UndoAsync()).AppliedCellCount != 2 ||
+            (await dataEntryGridHost.RedoAsync()).AppliedCellCount != 2)
             throw new InvalidOperationException("Single value range fill failed.");
         runtime.SelectCell(new(first.RowKey, quantity), runtime.ViewportStartIndex);
         await nativeClipboard.SetTextAsync("not-an-integer");
@@ -1327,6 +1357,18 @@ public sealed partial class MainWindow : Window
             throw new InvalidOperationException($"Clear filter completion failed: state={runtime.State} " +
                 $"generation={runtime.Generation}/{clearGeneration} filters={runtime.Filters.Length} visible={runtime.VisibleRows}.");
         Console.WriteLine("SMOKE GRID_SORT_FILTER_STATUS: ASC_DESC_CONTAINS_CLEAR PASS");
+
+        await dataEntryGridHost.FilterAsync(new(new("QUANTITY"), GridFilterOperator.GreaterThan, 199_990));
+        if (runtime.VisibleRows != 5) throw new InvalidOperationException("Numeric filter failed.");
+        await dataEntryGridHost.FilterAsync(new(new("START_DATE"), GridFilterOperator.After, new DateOnly(2035, 1, 1)));
+        if (runtime.VisibleRows <= 0 || runtime.VisibleRows >= DemoDataEntryProvider.LogicalRowCount)
+            throw new InvalidOperationException("Date filter failed.");
+        await dataEntryGridHost.FilterAsync(new(new("ITEM_CODE"), GridFilterOperator.Equals, "NO-MATCH"));
+        await dataEntryGridHost.RequestViewportAsync(0);
+        if (runtime.State != GridProviderState.Empty || runtime.VisibleRows != 0)
+            throw new InvalidOperationException($"Filtered empty state failed: state={runtime.State} visible={runtime.VisibleRows} diagnostic={runtime.DiagnosticCode}.");
+        await dataEntryGridHost.ClearFilterAsync();
+        Console.WriteLine("SMOKE GRID_10E_FILTER: TEXT NUMBER DATE FILTERED_EMPTY CLEAR PASS");
 
         smokeStage = "DATA_ENTRY_PRESENTATION";
         localization.TrySetCulture("vi-VN"); themeSelector.SelectedItem = ThemeMode.System;

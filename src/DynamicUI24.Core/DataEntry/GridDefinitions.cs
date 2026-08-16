@@ -7,10 +7,11 @@ namespace DynamicUI24.Core.DataEntry;
 
 public enum GridSelectionMode { None, Single, Multiple }
 public enum GridSortDirection { Ascending, Descending }
-public enum GridFilterOperator { Equals, NotEquals, Contains, StartsWith, GreaterThan, LessThan, IsEmpty, IsNotEmpty }
+public enum GridFilterOperator { Equals, NotEquals, Contains, StartsWith, GreaterThan, LessThan, Between, Before, After, IsEmpty, IsNotEmpty, True, False, Any }
 
 public sealed record GridSortDefinition(VariableCode VariableCode, GridSortDirection Direction, int Priority = 0);
-public sealed record GridFilterDefinition(VariableCode VariableCode, GridFilterOperator Operator, object? Value = null);
+public sealed record GridFilterDefinition(VariableCode VariableCode, GridFilterOperator Operator, object? Value = null,
+    object? Value2 = null, GridFilterDataType? DataType = null);
 
 /// <summary>Generic grid metadata. Column metadata is the Task 9 contract and is not duplicated here.</summary>
 public sealed record GridDefinition

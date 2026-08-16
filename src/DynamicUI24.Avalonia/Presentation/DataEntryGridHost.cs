@@ -68,7 +68,7 @@ public sealed class DataEntryGridHost : UserControl
     }
 
     public DataEntryGridRuntime Runtime => runtime;
-    public int RenderedColumnCount => runtime.ResolvedDefinition.Columns.Count(x => x.IsVisible);
+    public int RenderedColumnCount => runtime.PresentedColumns.Length;
     public int RenderedRowCount => runtime.Rows.Length;
     public bool HasActiveEditor => activeEditor is not null;
     public event EventHandler? Changed;
@@ -121,6 +121,14 @@ public sealed class DataEntryGridHost : UserControl
         runtime.ClearSelectedCellsAsync(cancellationToken: cancellationToken);
     public Task<GridPasteResult> UndoAsync(CancellationToken cancellationToken = default) => runtime.UndoAsync(cancellationToken);
     public Task<GridPasteResult> RedoAsync(CancellationToken cancellationToken = default) => runtime.RedoAsync(cancellationToken);
+    public Task<GridPasteResult> FillDownAsync(CancellationToken cancellationToken = default) => runtime.FillDownAsync(cancellationToken);
+    public Task<GridPasteResult> FillRightAsync(CancellationToken cancellationToken = default) => runtime.FillRightAsync(cancellationToken);
+    public bool ResizeColumn(VariableCode variableCode, decimal width) => runtime.ResizeColumn(variableCode, width);
+    public bool ReorderColumn(VariableCode variableCode, int visibleIndex) => runtime.ReorderColumn(variableCode, visibleIndex);
+    public bool SetColumnVisible(VariableCode variableCode, bool visible) => runtime.SetColumnVisible(variableCode, visible);
+    public bool SetColumnPinned(VariableCode variableCode, bool pinned) => runtime.SetColumnPin(variableCode,
+        pinned ? GridColumnPin.Left : GridColumnPin.None, (decimal)Math.Max(240, Bounds.Width * .55));
+    public void ResetLayout() => runtime.ResetView();
     public Task SortAsync(VariableCode variableCode, GridSortDirection direction, CancellationToken cancellationToken = default)
     {
         CancelViewportResize(); return runtime.SetSortAsync([new(variableCode, direction)], authorization, cancellationToken);
@@ -150,6 +158,8 @@ public sealed class DataEntryGridHost : UserControl
     private void Rebuild()
     {
         activeEditor = null;
+        if (stateText.Parent is Panel statePanel) statePanel.Children.Remove(stateText);
+        else if (ReferenceEquals(Content, stateText)) Content = null;
         if (scroller.Parent is Panel previousPanel) previousPanel.Children.Remove(scroller);
         else if (ReferenceEquals(Content, scroller)) Content = null;
         if (runtime.State != GridProviderState.Ready && runtime.Rows.Length == 0)
@@ -157,17 +167,25 @@ public sealed class DataEntryGridHost : UserControl
             stateText.Text = runtime.State switch
             {
                 GridProviderState.Loading => localization.Get(new("Grid.State.Loading")),
+                GridProviderState.Empty when runtime.Filters.Length > 0 => "No rows match current filters",
                 GridProviderState.Empty => localization.Get(runtime.Definition.EmptyStateKey),
                 GridProviderState.Error => localization.Get(new("Grid.State.Error")),
                 GridProviderState.Unavailable => localization.Get(new("Grid.State.Unavailable")),
                 _ => localization.Get(new("Grid.State.Empty")),
             };
             AutomationProperties.SetName(stateText, stateText.Text);
-            Content = stateText;
+            if (runtime.State == GridProviderState.Empty && runtime.Filters.Length > 0)
+            {
+                var clear = new Button { Content = "Clear filters", HorizontalAlignment = HorizontalAlignment.Center };
+                clear.Click += async (_, _) => await ClearFilterAsync();
+                Content = new StackPanel { Spacing = 8, HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center, Children = { stateText, clear } };
+            }
+            else Content = stateText;
             return;
         }
 
-        var columns = runtime.ResolvedDefinition.Columns.Where(x => x.IsVisible).ToArray();
+        var columns = runtime.PresentedColumns.Select(x => x.Column with { Width = x.Width }).ToArray();
         var scale = appearance?.Current.UiScale ?? 1d;
         var stack = new StackPanel { Spacing = 0 };
         stack.Children.Add(BuildHeader(columns, scale));
@@ -201,12 +219,14 @@ public sealed class DataEntryGridHost : UserControl
                 Padding = new Thickness(8 * scale, 4 * scale),
             };
             AutomationProperties.SetName(button, localization.Get(new(column.Definition.DisplayNameKey)));
+            AutomationProperties.SetHelpText(button, HeaderState(column.Definition.VariableCode));
             button.Click += async (_, _) =>
             {
                 var current = runtime.Sorts.FirstOrDefault(x => x.VariableCode == column.Definition.VariableCode);
                 var direction = current?.Direction == GridSortDirection.Ascending ? GridSortDirection.Descending : GridSortDirection.Ascending;
                 await SortAsync(column.Definition.VariableCode, direction);
             };
+            button.ContextMenu = BuildHeaderMenu(column.Definition.VariableCode);
             Grid.SetColumn(button, index + columnOffset); grid.Children.Add(button);
         }
         return grid;
@@ -292,7 +312,66 @@ public sealed class DataEntryGridHost : UserControl
             args.Handled = true;
         };
         border.DoubleTapped += (_, _) => BeginEdit(row.RowKey, column.Definition.VariableCode);
+        border.ContextMenu = BuildCellMenu();
         return border;
+    }
+
+    private ContextMenu BuildHeaderMenu(VariableCode code)
+    {
+        var index = Array.FindIndex(runtime.PresentedColumns.ToArray(), x => x.VariableCode == code);
+        MenuItem Item(string text, Action action, bool enabled = true)
+        {
+            var item = new MenuItem { Header = text, IsEnabled = enabled };
+            item.Click += (_, _) => action(); return item;
+        }
+        return new ContextMenu
+        {
+            Items =
+            {
+                Item("Sort ascending", () => _ = SortAsync(code, GridSortDirection.Ascending)),
+                Item("Sort descending", () => _ = SortAsync(code, GridSortDirection.Descending)),
+                Item("Clear filter", () => _ = ClearFilterAsync(), runtime.Filters.Any(x => x.VariableCode == code)),
+                new Separator(),
+                Item("Move left", () => runtime.ReorderColumn(code, Math.Max(0, index - 1)), index > 0),
+                Item("Move right", () => runtime.ReorderColumn(code, Math.Min(runtime.PresentedColumns.Length - 1, index + 1)), index >= 0 && index < runtime.PresentedColumns.Length - 1),
+                Item("Pin left", () => SetColumnPinned(code, true), runtime.PresentedColumns.First(x => x.VariableCode == code).Pin == GridColumnPin.None),
+                Item("Unpin", () => SetColumnPinned(code, false), runtime.PresentedColumns.First(x => x.VariableCode == code).Pin != GridColumnPin.None),
+                Item("Hide column", () => SetColumnVisible(code, false), runtime.PresentedColumns.Length > 1),
+                Item("Reset column width", () => runtime.ResetColumnWidth(code)),
+                new Separator(),
+                Item("Reset layout", ResetLayout),
+            },
+        };
+    }
+
+    private ContextMenu BuildCellMenu() => new()
+    {
+        Items =
+        {
+            Menu("Copy", () => _ = CopySelectionAsync(), runtime.CellSelection.HasCellSelection),
+            Menu("Cut", () => _ = CutSelectionAsync(), runtime.CanClearCellSelection()),
+            Menu("Paste", () => _ = PasteSelectionAsync(), runtime.ActiveCell is not null),
+            Menu("Clear", () => _ = ClearSelectionAsync(), runtime.CanClearCellSelection()),
+            new Separator(),
+            Menu("Fill down", () => _ = FillDownAsync(), runtime.SelectedRanges.Any(x => x.RowCount > 1)),
+            Menu("Fill right", () => _ = FillRightAsync(), runtime.SelectedRanges.Any()),
+            Menu("Undo", () => _ = UndoAsync(), runtime.CanUndo),
+            Menu("Redo", () => _ = RedoAsync(), runtime.CanRedo),
+        },
+    };
+
+    private static MenuItem Menu(string text, Action action, bool enabled)
+    {
+        var item = new MenuItem { Header = text, IsEnabled = enabled };
+        item.Click += (_, _) => action(); return item;
+    }
+
+    private string HeaderState(VariableCode code)
+    {
+        var column = runtime.PresentedColumns.First(x => x.VariableCode == code);
+        var sort = runtime.Sorts.FirstOrDefault(x => x.VariableCode == code)?.Direction.ToString() ?? "unsorted";
+        var filter = runtime.Filters.Any(x => x.VariableCode == code) ? "filtered" : "unfiltered";
+        return $"{sort}, {filter}, {(column.Pin == GridColumnPin.Left ? "pinned left" : "not pinned")}";
     }
 
     private Grid CreateColumns(IEnumerable<ResolvedGridColumn> columns, double scale)

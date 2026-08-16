@@ -214,7 +214,8 @@ internal sealed class DemoDataEntryProvider : IVirtualizedGridDataProvider, IGri
             {
                 "ITEM_CODE" => $"{company.Code}-{index:000000}", "ITEM_NAME" => $"Sample item {index:000000}",
                 "CATEGORY" => index % 3 == 0 ? "EXTENDED" : "STANDARD", "QUANTITY" => index * 2,
-                "UNIT_RATE" => 7.25m + index / 4m, "IS_ACTIVE" => index % 4 != 0, _ => null,
+                "UNIT_RATE" => 7.25m + index / 4m, "IS_ACTIVE" => index % 4 != 0,
+                "START_DATE" => new DateOnly(2026, 1, 1).AddDays(index % 3650), _ => null,
             };
             if (!Matches(value, filter)) return false;
         }
@@ -233,8 +234,15 @@ internal sealed class DemoDataEntryProvider : IVirtualizedGridDataProvider, IGri
             GridFilterOperator.StartsWith => left.StartsWith(right, StringComparison.CurrentCultureIgnoreCase),
             GridFilterOperator.GreaterThan => GridObjectComparer.Instance.Compare(cell, filter.Value) > 0,
             GridFilterOperator.LessThan => GridObjectComparer.Instance.Compare(cell, filter.Value) < 0,
+            GridFilterOperator.Before => GridObjectComparer.Instance.Compare(cell, filter.Value) < 0,
+            GridFilterOperator.After => GridObjectComparer.Instance.Compare(cell, filter.Value) > 0,
+            GridFilterOperator.Between => GridObjectComparer.Instance.Compare(cell, filter.Value) >= 0 &&
+                GridObjectComparer.Instance.Compare(cell, filter.Value2) <= 0,
             GridFilterOperator.IsEmpty => string.IsNullOrEmpty(left),
             GridFilterOperator.IsNotEmpty => !string.IsNullOrEmpty(left),
+            GridFilterOperator.True => cell is true,
+            GridFilterOperator.False => cell is false,
+            GridFilterOperator.Any => true,
             _ => false,
         };
     }

@@ -360,15 +360,15 @@ public sealed partial class DataEntryGridRuntime
 
     private ImmutableArray<ResolvedGridColumn> VisibleColumnsIn(GridCellRange range)
     {
-        var visible = ResolvedDefinition.Columns.Where(x => x.IsVisible).ToImmutableArray();
+        var visible = View.VisibleColumns.Select(x => x.Column).ToImmutableArray();
         var bounds = range.ResolveColumnBounds(visible.Select(x => x.Definition.VariableCode).ToArray());
         return bounds is null ? [] : visible[bounds.Value.Start..(bounds.Value.End + 1)];
     }
 
-    private ImmutableArray<VariableCode> VisibleVariableCodes() => ResolvedDefinition.Columns
-        .Where(x => x.IsVisible).Select(x => x.Definition.VariableCode).ToImmutableArray();
-    private bool IsVisibleColumn(VariableCode variableCode) => ResolvedDefinition.Columns
-        .Any(x => x.IsVisible && x.Definition.VariableCode == variableCode);
+    private ImmutableArray<VariableCode> VisibleVariableCodes() => View.VisibleColumns
+        .Select(x => x.VariableCode).ToImmutableArray();
+    private bool IsVisibleColumn(VariableCode variableCode) => View.VisibleColumns
+        .Any(x => x.VariableCode == variableCode);
     private bool CanEditColumn(VariableCode variableCode) => ResolvedDefinition.CanEdit && ResolvedDefinition.Columns
         .Any(x => x.IsVisible && x.CanEdit && x.Definition.VariableCode == variableCode);
     private bool IsKnownRow(RowKey rowKey, int position) => position >= 0 && position < TotalRows &&
