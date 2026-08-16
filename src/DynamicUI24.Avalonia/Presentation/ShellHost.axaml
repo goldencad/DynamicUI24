@@ -7,7 +7,7 @@
               Background="{DynamicResource DuiSurfaceRaisedBrush}"
               BorderBrush="{DynamicResource DuiBorderBrush}"
               BorderThickness="0,0,0,1">
-        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+        <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="12">
           <Button x:Name="ApplicationMenuButton" Width="44" Height="38" Padding="5"
                   Click="ApplicationMenuClicked">
             <PathIcon x:Name="LogoIcon" Width="20" Height="20"
@@ -19,7 +19,15 @@
             <TextBlock x:Name="WorkspaceTitleText" FontSize="12"
                        Foreground="{DynamicResource DuiTextMutedBrush}" />
           </StackPanel>
-          <Button Grid.Column="2" x:Name="ExitButton" Click="ExitClicked" />
+          <Button Grid.Column="2" x:Name="SearchButton" Click="SearchClicked" MinWidth="126"
+                  AutomationProperties.Name="Search commands and destinations">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <TextBlock Text="⌕" x:Name="SearchIconLabel" />
+              <TextBlock Text="Search…" x:Name="SearchButtonLabel" />
+              <TextBlock Text="⌘K" x:Name="SearchShortcutLabel" Opacity="0.7" />
+            </StackPanel>
+          </Button>
+          <Button Grid.Column="3" x:Name="ExitButton" Click="ExitClicked" />
         </Grid>
       </Border>
       <ContentControl Grid.Row="1" x:Name="RibbonPresenter" />
@@ -36,6 +44,11 @@
               Background="{DynamicResource DuiSurfaceBrush}"
               BorderBrush="{DynamicResource DuiBorderBrush}" BorderThickness="0,0,0,1">
         <ContentControl x:Name="ApplicationMenuPresenter" />
+      </Border>
+      <Border Grid.Row="0" Grid.RowSpan="4" x:Name="SearchOverlay" IsVisible="False"
+              Background="#66000000" PointerPressed="SearchBackdropPressed">
+        <ContentControl x:Name="SearchPresenter" HorizontalAlignment="Center" VerticalAlignment="Top"
+                        Margin="24,72,24,24" PointerPressed="SearchContentPressed" />
       </Border>
       <Border Grid.Row="4" Padding="18,8"
               Background="{DynamicResource DuiSurfaceRaisedBrush}"

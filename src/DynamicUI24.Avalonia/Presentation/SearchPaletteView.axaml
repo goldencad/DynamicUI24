@@ -1,0 +1,36 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:DynamicUI24.Avalonia.Presentation"
+             x:Class="DynamicUI24.Avalonia.Presentation.SearchPaletteView"
+             MinWidth="360" MaxWidth="680" MaxHeight="560">
+  <Border Padding="12" CornerRadius="10" Background="{DynamicResource DuiSurfaceRaisedBrush}"
+          BorderBrush="{DynamicResource DuiBorderBrush}" BorderThickness="1">
+    <Grid RowDefinitions="Auto,Auto,*,Auto" RowSpacing="8">
+      <TextBox x:Name="QueryBox" Watermark="Search…" TextChanged="QueryChanged"
+               AutomationProperties.Name="Search commands and destinations" />
+      <TextBlock x:Name="StatusText" Grid.Row="1" Foreground="{DynamicResource DuiTextMutedBrush}" />
+      <ListBox x:Name="Results" Grid.Row="2" SelectionChanged="SelectionChanged"
+               DoubleTapped="ResultDoubleTapped" AutomationProperties.Name="Search results">
+        <ListBox.ItemTemplate>
+          <DataTemplate DataType="local:SearchResultView">
+            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="9" Margin="4,5" IsEnabled="{Binding IsActionable}">
+              <PathIcon Width="16" Height="16" Data="{Binding IconPath}"
+                        Foreground="{DynamicResource DuiAccentBrush}" />
+              <StackPanel Grid.Column="1">
+                <TextBlock Text="{Binding Title}" />
+                <TextBlock Text="{Binding Subtitle}" FontSize="11"
+                           Foreground="{DynamicResource DuiTextMutedBrush}" />
+              </StackPanel>
+              <TextBlock Grid.Column="2" Text="{Binding Group}" FontSize="10"
+                         Foreground="{DynamicResource DuiTextMutedBrush}" VerticalAlignment="Center" />
+            </Grid>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+      <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+        <Button x:Name="FavoriteButton" Content="Add to Favorites" Click="FavoriteClicked" IsVisible="False" />
+        <Button x:Name="PinButton" Content="Pin" Click="PinClicked" IsVisible="False" />
+      </StackPanel>
+    </Grid>
+  </Border>
+</UserControl>

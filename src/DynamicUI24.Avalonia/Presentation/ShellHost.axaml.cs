@@ -40,8 +40,21 @@ public sealed partial class ShellHost : UserControl
         presentation.PropertyChanged += PresentationChanged;
         localization.CultureChanged += LocalizationChanged;
         RefreshText();
+        SizeChanged += (_, _) => RefreshResponsiveSearch();
         KeyDown += (_, e) =>
         {
+            if (e.Key == Key.K && e.KeyModifiers.HasFlag(OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control))
+            {
+                IsSearchOpen = true;
+                e.Handled = true;
+                return;
+            }
+            if (e.Key == Key.Escape && SearchOverlay.IsVisible)
+            {
+                IsSearchOpen = false;
+                e.Handled = true;
+                return;
+            }
             if (e.Key == Key.Escape && ApplicationMenuOverlay.IsVisible)
             {
                 IsApplicationMenuOpen = false;
@@ -88,6 +101,27 @@ public sealed partial class ShellHost : UserControl
         }
     }
 
+    public SearchPaletteView? SearchContent
+    {
+        get => SearchPresenter.Content as SearchPaletteView;
+        set
+        {
+            if (SearchPresenter.Content is SearchPaletteView oldView) oldView.CloseRequested -= SearchCloseRequested;
+            SearchPresenter.Content = value;
+            if (value is not null) value.CloseRequested += SearchCloseRequested;
+        }
+    }
+
+    public bool IsSearchOpen
+    {
+        get => SearchOverlay.IsVisible;
+        set
+        {
+            SearchOverlay.IsVisible = value;
+            if (value) { IsApplicationMenuOpen = false; SearchContent?.Open(); }
+        }
+    }
+
     public bool IsApplicationMenuOpen
     {
         get => ApplicationMenuOverlay.IsVisible;
@@ -107,12 +141,30 @@ public sealed partial class ShellHost : UserControl
         WorkspaceTitleText.Text = presentation.CurrentWorkspaceTitle ?? string.Empty;
         StatusText.Text = presentation.StatusMessage ?? localization.Get(presentation.State.MessageKey);
         ExitButton.Content = localization.Get(new LocalizationKey("Shell.Exit"));
+        SearchButtonLabel.Text = Localized("Search.Placeholder", "Search…");
+        SearchShortcutLabel.Text = OperatingSystem.IsMacOS() ? "⌘K" : "Ctrl+K";
+        AutomationProperties.SetName(SearchButton, Localized("Search.AccessibleName", "Search commands and destinations"));
         AutomationProperties.SetName(ApplicationMenuButton, localization.Get(new LocalizationKey("AppMenu.Open")));
+    }
+
+    private string Localized(string key, string fallback)
+    { var value = localization.Get(new LocalizationKey(key)); return value == key ? fallback : value; }
+
+    private void RefreshResponsiveSearch()
+    {
+        var narrow = Bounds.Width < 720;
+        SearchButtonLabel.IsVisible = !narrow;
+        SearchShortcutLabel.IsVisible = !narrow;
+        SearchButton.MinWidth = narrow ? 44 : 126;
     }
 
     private void ExitClicked(object? sender, RoutedEventArgs e) => exitService.RequestExit();
     private void ApplicationMenuClicked(object? sender, RoutedEventArgs e) => IsApplicationMenuOpen = !IsApplicationMenuOpen;
     private void MenuCloseRequested(object? sender, EventArgs e) => IsApplicationMenuOpen = false;
+    private void SearchClicked(object? sender, RoutedEventArgs e) => IsSearchOpen = !IsSearchOpen;
+    private void SearchCloseRequested(object? sender, EventArgs e) => IsSearchOpen = false;
+    private void SearchBackdropPressed(object? sender, PointerPressedEventArgs e) => IsSearchOpen = false;
+    private void SearchContentPressed(object? sender, PointerPressedEventArgs e) => e.Handled = true;
 
     private sealed class NoOpExitService : IApplicationExitService
     {

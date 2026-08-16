@@ -20,6 +20,7 @@ using DynamicUI24.Core.Setup;
 using DynamicUI24.Core.DataEntry;
 using DynamicUI24.Core.ImportExport;
 using DynamicUI24.Core.Privacy;
+using DynamicUI24.Core.Search;
 using DynamicUI24.Shared.Presentation;
 
 namespace DynamicUI24.Demo;
@@ -50,6 +51,8 @@ public sealed partial class MainWindow : Window
     private readonly DynamicActionBarResolver actionBarResolver = new();
     private readonly WorkspaceActionBarDefinitions actionBarDefinitions = DemoActionBars.Create();
     private readonly WorkspaceNavigationService workspaceNavigation;
+    private readonly InMemoryQuickAccessStore quickAccess = new(12);
+    private readonly SearchCoordinator searchCoordinator;
     private readonly ActionCommandRegistry actionCommands;
     private readonly ActionBarCommandDispatcher actionDispatcher;
     private readonly DynamicActionBarHost topActionBar;
@@ -179,6 +182,11 @@ public sealed partial class MainWindow : Window
             Task.FromResult(RibbonCommandResult.Success("Hello from a registered UI command.")));
         commandRegistry.Register("DEMO.SELECTION", (_, _) =>
             Task.FromResult(RibbonCommandResult.Success("Selection command dispatched.")));
+        var searchProviders = DemoSearch.CreateProviders(workspaces, quickAccess, out _);
+        searchCoordinator = new SearchCoordinator(searchProviders, new(48, 10));
+        quickAccess.AddFavorite(new("workspace:dashboard-demo", SearchResultKind.Workspace, "dashboard-demo", "WORKSPACES"));
+        quickAccess.Pin(new("workspace:report-demo", SearchResultKind.Workspace, "report-demo", "WORKSPACES"));
+        quickAccess.AddFavorite(new("workspace:report-demo", SearchResultKind.Workspace, "report-demo", "WORKSPACES"));
         var dispatcher = new RibbonCommandDispatcher(
             new DemoRibbonNavigationService(workspaces, NavigateFromRibbon),
             new DemoRibbonRefreshService(RefreshFromRibbon),
@@ -229,6 +237,21 @@ public sealed partial class MainWindow : Window
         treeHost = new DynamicTreeHost(localization, iconRegistry);
         treeHost.NodeSelected += (_, args) => NavigateTreeNode(args.Node);
         shell.NavigationContent = treeHost;
+        var searchActivation = new SearchActivationService(workspaceNavigation, commandRegistry,
+            () => new RibbonCommandExecutionContext(CreateRibbonContext(workspaceHost.CurrentDefinition ?? workspaces[0]),
+                workspaceHost.CurrentDefinition),
+            new DemoSettingNavigationService(_ => shell.IsApplicationMenuOpen = true), quickAccess);
+        shell.SearchContent = new SearchPaletteView(searchCoordinator,
+            new SearchResultPresenter(privacyResolver, sensitiveValuePresenter), localization, iconRegistry,
+            () => new SearchQuery("", SearchScope.GlobalSearch,
+                companyContext.CurrentCompany.CompanyId.Value, workspaceHost.CurrentDefinition?.WorkspaceId,
+                workspaceHost.CurrentDefinition?.TemplateCode.Value, treeHost.SelectedNodeId,
+                localization.CurrentCulture, companyScope.Snapshot.AuthorizationContext,
+                new PrivacyResolutionContext(true, null, privacyState.RequestedMode,
+                    new MandatoryPrivacyPolicy(), companyContext.CurrentCompany.CompanyId,
+                    workspaceHost.CurrentDefinition?.WorkspaceId, Generation: privacyState.Generation)),
+            searchActivation.ActivateAsync, quickAccess);
+        privacyState.StateChanged += (_, _) => InvalidateSearch();
         shell.WorkspaceContent = BuildDemoSurface();
         ShellContainer.Content = shell;
 
@@ -442,6 +465,7 @@ public sealed partial class MainWindow : Window
 
     private void ApplyCompanySnapshot(CompanyScopeSnapshot snapshot)
     {
+        InvalidateSearch();
         privacyState.InvalidateContext(snapshot.Company.CompanyId.Value, workspaceHost.CurrentDefinition?.WorkspaceId);
         currentCompanyValue.Text = $"{snapshot.Company.DisplayName} · CompanyId={snapshot.Company.CompanyId}";
         companyStateValue.Text = $"{snapshot.Status} · v{snapshot.Version}";
@@ -478,6 +502,7 @@ public sealed partial class MainWindow : Window
 
     private void WorkspaceSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
+        InvalidateSearch();
         var index = workspaceSelector.SelectedIndex;
         if (index < 0 || index >= workspaces.Count)
         {
@@ -502,6 +527,12 @@ public sealed partial class MainWindow : Window
         if (definition.WorkspaceId == "data-entry-demo")
             _ = LoadDataEntryAsync(companyContext.CurrentCompany, companyScope.Snapshot.AuthorizationContext);
         _ = RefreshNotificationsAsync();
+    }
+
+    private void InvalidateSearch()
+    {
+        searchCoordinator.Invalidate();
+        if (shell.IsSearchOpen && shell.SearchContent is { } palette) _ = palette.RefreshAsync();
     }
 
     private void SetPresentationState()
@@ -840,6 +871,8 @@ public sealed partial class MainWindow : Window
             else
             {
                 smokeTimer!.Stop();
+                smokeStage = "SEARCH";
+                await RunSearchSmokeAsync();
                 smokeStage = "RIBBON";
                 await RunRibbonSmokeAsync();
                 smokeStage = "ACTION_BARS";
@@ -874,6 +907,45 @@ public sealed partial class MainWindow : Window
         {
             smokeAdvancing = false;
         }
+    }
+
+    private async Task RunSearchSmokeAsync()
+    {
+        var palette = shell.SearchContent ?? throw new InvalidOperationException("Global Search is not configured.");
+        shell.IsSearchOpen = true;
+        await palette.SetQueryAsync("report");
+        if (!shell.IsSearchOpen || palette.CurrentResults.Count == 0 ||
+            !palette.CurrentResults.Any(x => x.Result.ResultKind is SearchResultKind.Workspace or SearchResultKind.TreeNode))
+            throw new InvalidOperationException("Global Search did not render navigation results.");
+        var target = palette.CurrentResults.First(x => x.Result.WorkspaceId == "report-demo");
+        var activation = await palette.ActivateAsync(target.Result.ResultId);
+        if (activation.Status != SearchActivationStatus.Success || workspaceHost.CurrentDefinition?.WorkspaceId != "report-demo" ||
+            treeHost.SelectedWorkspaceId != "report-demo")
+            throw new InvalidOperationException("Search activation did not synchronize Workspace and Tree state.");
+        await palette.SetQueryAsync("restricted");
+        var sensitive = palette.CurrentResults.Single(x => x.Result.ResultId == "restricted-record");
+        if (sensitive.Subtitle.Contains("123456789", StringComparison.Ordinal))
+            throw new InvalidOperationException("Search leaked a restricted subtitle.");
+        await palette.SetQueryAsync("Data Entry Demo");
+        var recentActivation = await palette.ActivateAsync("data-entry-demo");
+        if (recentActivation.Status != SearchActivationStatus.Success)
+            throw new InvalidOperationException("Recent destination was not recorded from successful navigation.");
+        await palette.SetQueryAsync("");
+        if (!palette.CurrentResults.Any(x => x.Result.ResultKind == SearchResultKind.Pinned) ||
+            !palette.CurrentResults.Any(x => x.Result.ResultKind == SearchResultKind.Favorite) ||
+            !palette.CurrentResults.Any(x => x.Result.ResultKind == SearchResultKind.Recent))
+            throw new InvalidOperationException("Empty-query Quick Access groups were not resolved.");
+        treeHost.NavigationQuery = "standard report";
+        if (!treeHost.VisibleNodeIds.Contains("standard-report") || !treeHost.VisibleNodeIds.Contains("dashboard"))
+            throw new InvalidOperationException("Navigation Search did not retain matching descendant hierarchy.");
+        treeHost.NavigationQuery = string.Empty;
+        if (!treeHost.VisibleNodeIds.Contains("safe-unknown"))
+            throw new InvalidOperationException("Clearing Navigation Search did not restore the tree.");
+        await workspaceNavigation.NavigateAsync("report-demo");
+        shell.IsSearchOpen = false;
+        Console.WriteLine("SMOKE SEARCH_PALETTE: PASS WORKSPACE_TREE_COMMAND_SETTING_RECORD PRIVACY FAILURE_ISOLATED");
+        Console.WriteLine("SMOKE SEARCH_QUICK_ACCESS: PASS PINNED FAVORITES RECENT");
+        Console.WriteLine("SMOKE NAVIGATION_SEARCH: PASS NESTED SEE_MORE RESTORE");
     }
 
     private void RunPrivacySmoke()

@@ -7,6 +7,7 @@ using Avalonia.VisualTree;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using DynamicUI24.Core.Navigation;
+using DynamicUI24.Core.Search;
 using DynamicUI24.Shared.Presentation;
 
 namespace DynamicUI24.Avalonia.Presentation;
@@ -19,6 +20,7 @@ public sealed partial class DynamicTreeHost : UserControl
     private readonly TreeOverflowController overflow;
     private readonly HashSet<string> expandedNodeIds = new(StringComparer.OrdinalIgnoreCase);
     private ImmutableArray<ResolvedTreeNode> resolved = [];
+    private ImmutableArray<ResolvedTreeNode> visible = [];
     private bool applyingSelection;
 
     public DynamicTreeHost()
@@ -32,19 +34,24 @@ public sealed partial class DynamicTreeHost : UserControl
         this.icons = icons ?? throw new ArgumentNullException(nameof(icons));
         overflow = new(overflowOptions);
         InitializeComponent();
-        localization.CultureChanged += (_, _) => Render();
+        localization.CultureChanged += (_, _) => { ApplySearch(); Render(); };
         TitleText.Text = localization.Get(new("Tree.Navigation"));
+        SearchDefinition = new();
     }
 
     public string? SelectedNodeId { get; private set; }
     public string? SelectedWorkspaceId { get; private set; }
     public TreeOverflowOptions OverflowOptions => overflow.Options;
+    public NavigationSearchDefinition SearchDefinition { get; set; }
     public bool ShowTitle { get => TitleText.IsVisible; set => TitleText.IsVisible = value; }
     public event EventHandler<TreeNodeSelectedEventArgs>? NodeSelected;
+    public string NavigationQuery { get => SearchBox.Text ?? string.Empty; set => SearchBox.Text = value; }
+    public IReadOnlyList<string> VisibleNodeIds => FlattenResolved(visible).Select(x => x.Definition.NodeId).ToArray();
 
     public void Show(ResolvedTree tree)
     {
         resolved = tree.RootNodes;
+        ApplySearch();
         Render();
     }
 
@@ -148,7 +155,7 @@ public sealed partial class DynamicTreeHost : UserControl
         var wasApplyingSelection = applyingSelection;
         applyingSelection = true;
         TitleText.Text = localization.Get(new("Tree.Navigation"));
-        Tree.ItemsSource = CreateViews(resolved, null);
+        Tree.ItemsSource = CreateViews(visible, null);
         if (selected is not null)
         {
             var item = Flatten(Tree.ItemsSource as IEnumerable<ITreeItemView>).OfType<TreeNodeView>()
@@ -166,6 +173,8 @@ public sealed partial class DynamicTreeHost : UserControl
 
     private IReadOnlyList<ITreeItemView> CreateViews(ImmutableArray<ResolvedTreeNode> nodes, string? parentNodeId)
     {
+        if (!string.IsNullOrWhiteSpace(SearchBox.Text))
+            return nodes.Select(CreateView).Cast<ITreeItemView>().ToList();
         var window = overflow.GetWindow(parentNodeId, nodes.Length);
         var result = nodes.Take(window.VisibleCount).Select(CreateView).Cast<ITreeItemView>().ToList();
         var canShowLess = window.CanShowLess &&
@@ -203,6 +212,35 @@ public sealed partial class DynamicTreeHost : UserControl
     {
         if (sender is Button { DataContext: TreeOverflowView view }) ShowLess(view.ParentNodeId);
     }
+
+    private void SearchTextChanged(object? sender, TextChangedEventArgs e)
+    {
+        ApplySearch();
+        Render();
+    }
+
+    private void ApplySearch()
+    {
+        SearchBox.Watermark = Localized(SearchDefinition.PlaceholderKey, "Search navigation…");
+        var query = SearchText.Normalize(SearchBox.Text);
+        if (!SearchDefinition.Enabled || query.Length == 0) { visible = resolved; return; }
+        ResolvedTreeNode? Visit(ResolvedTreeNode node)
+        {
+            var children = node.Children.Select(Visit).Where(x => x is not null).Cast<ResolvedTreeNode>().ToImmutableArray();
+            var label = SearchText.Normalize(localization.Get(node.Definition.DisplayNameKey));
+            var code = SearchText.Normalize(node.Definition.NodeCode);
+            var matches = SearchDefinition.SearchMode == NavigationSearchMode.Prefix
+                ? label.StartsWith(query, StringComparison.Ordinal) || code.StartsWith(query, StringComparison.Ordinal)
+                : label.Contains(query, StringComparison.Ordinal) || code.Contains(query, StringComparison.Ordinal);
+            if (!matches && children.Length == 0) return null;
+            if (children.Length > 0) expandedNodeIds.Add(node.Definition.NodeId);
+            return node with { Children = children };
+        }
+        visible = resolved.Select(Visit).Where(x => x is not null).Cast<ResolvedTreeNode>().ToImmutableArray();
+    }
+
+    private string Localized(string key, string fallback)
+    { var value = localization.Get(new(key)); return value == key ? fallback : value; }
 
     private bool EnsureNodeVisible(string nodeId) => EnsureNodeVisible(resolved, null, nodeId);
 
