@@ -3048,7 +3048,7 @@ The example does not prescribe a business classification.
                                                      authorization
 
   Accessibility                                  Yes No while protected
-  automation                                         
+  automation
 
   Framework logs                                 Yes No raw value by
                                                      default
