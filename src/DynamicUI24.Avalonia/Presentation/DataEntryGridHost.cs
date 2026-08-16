@@ -9,6 +9,7 @@ using Avalonia.Threading;
 using DynamicUI24.Core.Authorization;
 using DynamicUI24.Core.DataEntry;
 using DynamicUI24.Core.Setup;
+using DynamicUI24.Core.Privacy;
 using DynamicUI24.Shared.Presentation;
 using GridMetadataColumn = DynamicUI24.Core.Setup.ColumnDefinition;
 
@@ -21,6 +22,9 @@ public sealed class DataEntryGridHost : UserControl
     private readonly ILocalizationService localization;
     private readonly AppearancePreferenceService? appearance;
     private readonly IGridClipboardService clipboard;
+    private readonly IPrivacyPolicyResolver privacyResolver;
+    private readonly IPrivacyStateService privacyState;
+    private readonly ISensitiveValuePresenter sensitivePresenter;
     private readonly TextBlock stateText = new() { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
     private readonly ScrollViewer scroller = new() { HorizontalScrollBarVisibility = global::Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
         VerticalScrollBarVisibility = global::Avalonia.Controls.Primitives.ScrollBarVisibility.Auto };
@@ -33,18 +37,24 @@ public sealed class DataEntryGridHost : UserControl
     private DateTimeOffset scrollRequestsEnabledAt;
 
     public DataEntryGridHost(DataEntryGridRuntime runtime, ILocalizationService localization,
-        AppearancePreferenceService? appearance = null, IGridClipboardService? clipboard = null)
+        AppearancePreferenceService? appearance = null, IGridClipboardService? clipboard = null,
+        IPrivacyPolicyResolver? privacyResolver = null, IPrivacyStateService? privacyState = null,
+        ISensitiveValuePresenter? sensitivePresenter = null)
     {
         this.runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
         this.localization = localization ?? throw new ArgumentNullException(nameof(localization));
         this.appearance = appearance;
         this.clipboard = clipboard ?? new AvaloniaGridClipboardService(this);
+        this.privacyResolver = privacyResolver ?? new PrivacyPolicyResolver();
+        this.privacyState = privacyState ?? new PrivacyStateService();
+        this.sensitivePresenter = sensitivePresenter ?? new SensitiveValuePresenter();
         MinHeight = 320;
         runtime.Changed += (_, args) => Dispatcher.UIThread.Post(() =>
         {
             if (args.Reason != "EDIT_CANDIDATE" || activeEditor is null) Rebuild();
             Changed?.Invoke(this, EventArgs.Empty);
         });
+        this.privacyState.StateChanged += (_, _) => Dispatcher.UIThread.Post(Rebuild);
         localization.CultureChanged += (_, _) => Rebuild();
         if (appearance is not null) appearance.PreferencesChanged += (_, _) =>
         {
@@ -254,8 +264,14 @@ public sealed class DataEntryGridHost : UserControl
         else
         {
             var value = runtime.GetValue(row.RowKey, column.Definition.VariableCode, out var diagnostic);
-            var text = new TextBlock { Text = diagnostic is null ? Format(value, column.Definition) : "⚠ —",
+            var resolution = privacyResolver.Resolve(new(true, column.Definition.SensitiveContent, privacyState.RequestedMode,
+                CompanyId: context?.Company.CompanyId, WorkspaceId: context?.WorkspaceId,
+                IsTemporarilyRevealed: privacyState.IsRevealed($"{row.RowKey}:{column.Definition.VariableCode}", privacyState.Generation),
+                Generation: privacyState.Generation));
+            var safe = sensitivePresenter.Present(value, column.Definition.SensitiveContent, resolution, CultureInfo.CurrentCulture);
+            var text = new TextBlock { Text = diagnostic is null ? safe.DisplayValue : "⚠ —",
                 TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
+            AutomationProperties.SetName(text, safe.AccessibleValue);
             content = text;
         }
         var address = new GridCellAddress(row.RowKey, column.Definition.VariableCode);

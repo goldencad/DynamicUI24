@@ -3,6 +3,7 @@ using System.Globalization;
 using DynamicUI24.Core.ActionBars;
 using DynamicUI24.Core.Authorization;
 using DynamicUI24.Core.Setup;
+using DynamicUI24.Core.Privacy;
 
 namespace DynamicUI24.Core.DataEntry;
 
@@ -28,9 +29,14 @@ public sealed partial class DataEntryGridRuntime
     private long generation;
     private GridProviderContext? context;
     private readonly GridEditHistory editHistory;
+    private readonly IPrivacyPolicyResolver privacyResolver;
+    private readonly IPrivacyStateService privacyState;
+    private readonly ISensitiveValuePresenter sensitiveValuePresenter;
 
     public DataEntryGridRuntime(GridDefinition definition, IDataEntryGridProvider provider,
-        GridViewportOptions? viewportOptions = null, GridPasteOptions? pasteOptions = null)
+        GridViewportOptions? viewportOptions = null, GridPasteOptions? pasteOptions = null,
+        IPrivacyPolicyResolver? privacyResolver = null, IPrivacyStateService? privacyState = null,
+        ISensitiveValuePresenter? sensitiveValuePresenter = null)
     {
         Definition = definition ?? throw new ArgumentNullException(nameof(definition));
         this.provider = provider ?? throw new ArgumentNullException(nameof(provider));
@@ -39,6 +45,9 @@ public sealed partial class DataEntryGridRuntime
         windowCache = new(ViewportOptions.MaximumCachedWindows);
         PasteOptions = pasteOptions ?? new();
         editHistory = new(PasteOptions.HistoryDepth);
+        this.privacyResolver = privacyResolver ?? new PrivacyPolicyResolver();
+        this.privacyState = privacyState ?? new PrivacyStateService();
+        this.sensitiveValuePresenter = sensitiveValuePresenter ?? new SensitiveValuePresenter();
         Sorts = definition.DefaultSort;
         Filters = definition.DefaultFilter;
         ResolvedDefinition = GridMetadataResolver.Resolve(definition, null);

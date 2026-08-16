@@ -57,6 +57,13 @@ public static class StandardIconKeys
     public static IconKey Publish { get; } = new("PUBLISH");
     public static IconKey Retire { get; } = new("RETIRE");
     public static IconKey More { get; } = new("MORE");
+    public static IconKey Privacy { get; } = new("PRIVACY");
+    public static IconKey PrivacyOn { get; } = new("PRIVACY_ON");
+    public static IconKey PrivacyOff { get; } = new("PRIVACY_OFF");
+    public static IconKey PrivacyAuto { get; } = new("PRIVACY_AUTO");
+    public static IconKey Reveal { get; } = new("REVEAL");
+    public static IconKey Hide { get; } = new("HIDE");
+    public static IconKey Restricted { get; } = new("RESTRICTED");
 }
 
 /// <summary>Registry-owned source. Reusable metadata continues to expose only <see cref="IconKey"/>.</summary>

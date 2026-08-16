@@ -4,6 +4,7 @@ using DynamicUI24.Core.DataEntry;
 using DynamicUI24.Core.Setup;
 using DynamicUI24.Core.Companies;
 using DynamicUI24.Core.ImportExport;
+using DynamicUI24.Core.Privacy;
 using DynamicUI24.Shared.Presentation;
 
 namespace DynamicUI24.Demo;
@@ -21,12 +22,14 @@ internal static class DemoDataEntry
             Column("rate", "RATE", "UNIT_RATE", "Grid.Column.Rate", ColumnDataType.Decimal, ColumnEditorKind.Number, ColumnMode.Input, 40, 118, format: "N2"),
             Column("active", "ACTIVE", "IS_ACTIVE", "Grid.Column.Active", ColumnDataType.Boolean, ColumnEditorKind.Checkbox, ColumnMode.Input, 50, 90),
             Column("date", "START_DATE", "START_DATE", "Grid.Column.StartDate", ColumnDataType.Date, ColumnEditorKind.DatePicker, ColumnMode.Input, 60, 120, format: "d"),
-            Column("notes", "NOTES", "NOTES", "Grid.Column.Notes", ColumnDataType.MultilineText, ColumnEditorKind.TextBox, ColumnMode.Input, 70, 180),
+            Column("notes", "PUBLIC_NOTE", "PUBLIC_NOTE", "Grid.Column.Notes", ColumnDataType.MultilineText, ColumnEditorKind.TextBox, ColumnMode.Input, 70, 180),
             Column("total", "TOTAL", "TOTAL", "Grid.Column.Total", ColumnDataType.Formula, ColumnEditorKind.Formula, ColumnMode.Formula, 80, 126, format: "N2"),
             Column("updated", "UPDATED_AT", "UPDATED_AT", "Grid.Column.UpdatedAt", ColumnDataType.System, ColumnEditorKind.ReadOnly, ColumnMode.System, 90, 155, format: "g"),
-            Column("reference", "REFERENCE", "REFERENCE", "Grid.Column.Reference", ColumnDataType.Reference, ColumnEditorKind.ReadOnly, ColumnMode.Input, 100, 135),
-            Column("secret", "PRIVILEGED_NOTE", "PRIVILEGED_NOTE", "Grid.Column.Privileged", ColumnDataType.Text, ColumnEditorKind.ReadOnly, ColumnMode.System, 110, 140,
-                visible: true, permission: "DEMO.PRIVILEGED"),
+            Column("reference", "CONTACT_REFERENCE", "CONTACT_REFERENCE", "Grid.Column.Reference", ColumnDataType.Reference, ColumnEditorKind.ReadOnly, ColumnMode.Input, 100, 150,
+                sensitive: new(Sensitivity.Confidential, PrivacyPresentation.PartialMask, AllowTemporaryReveal: true,
+                    TemporaryRevealDuration: TimeSpan.FromSeconds(8), PartialMask: new(0, 4, "•••• "))),
+            Column("secret", "PRIVATE_REFERENCE", "PRIVATE_REFERENCE", "Grid.Column.Privileged", ColumnDataType.Text, ColumnEditorKind.ReadOnly, ColumnMode.System, 110, 160,
+                sensitive: new(Sensitivity.Restricted, PrivacyPresentation.CaptureProtect, PrivacyPresentation.Mask)),
         };
         return new("demo-data-grid", "DEMO_DATA_GRID", columns, new("Grid.Title"),
             [new(new("ITEM_CODE"), GridSortDirection.Ascending)], selectionMode: GridSelectionMode.Multiple,
@@ -35,9 +38,9 @@ internal static class DemoDataEntry
 
     private static ColumnDefinition Column(string id, string code, string variable, string label, ColumnDataType type,
         ColumnEditorKind editor, ColumnMode mode, int order, decimal width, bool required = false,
-        bool visible = true, string? permission = null, string? format = null) =>
+        bool visible = true, string? permission = null, string? format = null, SensitiveContentDefinition? sensitive = null) =>
         new(id, code, new(variable), label, null, type, editor, mode, order, width, 64, 360,
-            visible, required, permission, format, null, null, null, 1, SetupDefinitionStatus.Published);
+            visible, required, permission, format, null, null, null, 1, SetupDefinitionStatus.Published, sensitive);
 }
 
 internal sealed class DemoDataEntryProvider : IVirtualizedGridDataProvider, IGridLogicalRowProvider, IGridBatchEditProvider,
@@ -192,10 +195,10 @@ internal sealed class DemoDataEntryProvider : IVirtualizedGridDataProvider, IGri
             [new("CATEGORY")] = index % 3 == 0 ? "EXTENDED" : "STANDARD", [new("QUANTITY")] = quantity,
             [new("UNIT_RATE")] = rate, [new("IS_ACTIVE")] = index % 4 != 0,
             [new("START_DATE")] = new DateOnly(2026, 1, 1).AddDays(index % 3650),
-            [new("NOTES")] = index % 5 == 0 ? "Review this neutral sample" : null,
+            [new("PUBLIC_NOTE")] = index % 5 == 0 ? "Review this neutral sample" : null,
             [new("TOTAL")] = quantity * rate,
             [new("UPDATED_AT")] = new DateTime(2026, 8, 1, 9, 0, 0, DateTimeKind.Local).AddMinutes(index % 525600),
-            [new("REFERENCE")] = $"REF-{1000000 + index}", [new("PRIVILEGED_NOTE")] = "hidden value",
+            [new("CONTACT_REFERENCE")] = $"CONTACT-{1000000 + index}", [new("PRIVATE_REFERENCE")] = $"PRIVATE-{9000000 + index}",
         };
         lock (sync)
             foreach (var edit in edits.Where(x => x.Key.CompanyId == company.CompanyId && x.Key.RowKey == rowKey))

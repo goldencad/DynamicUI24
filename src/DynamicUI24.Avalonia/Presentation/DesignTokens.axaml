@@ -32,6 +32,12 @@
       <SolidColorBrush x:Key="DuiGridBrush" Color="#FFE4E7EC" />
       <SolidColorBrush x:Key="DuiReadOnlyBrush" Color="#FFF2F4F7" />
       <SolidColorBrush x:Key="DuiCalculatedBrush" Color="#FFF4EBFF" />
+      <SolidColorBrush x:Key="Privacy.Mask.Foreground" Color="#FF475467" />
+      <SolidColorBrush x:Key="Privacy.Mask.Background" Color="#FFF2F4F7" />
+      <SolidColorBrush x:Key="Privacy.Hidden.Foreground" Color="#FF667085" />
+      <SolidColorBrush x:Key="Privacy.Icon.Foreground" Color="#FF344054" />
+      <SolidColorBrush x:Key="Privacy.Reveal.Focus" Color="#FF175CD3" />
+      <SolidColorBrush x:Key="Privacy.Restricted.Indicator" Color="#FFB54708" />
     </ResourceDictionary>
     <ResourceDictionary x:Key="Dark">
       <SolidColorBrush x:Key="DuiSurfaceBrush" Color="#FF101828" />
@@ -54,6 +60,12 @@
       <SolidColorBrush x:Key="DuiGridBrush" Color="#FF344054" />
       <SolidColorBrush x:Key="DuiReadOnlyBrush" Color="#FF202939" />
       <SolidColorBrush x:Key="DuiCalculatedBrush" Color="#FF3B2A56" />
+      <SolidColorBrush x:Key="Privacy.Mask.Foreground" Color="#FFD0D5DD" />
+      <SolidColorBrush x:Key="Privacy.Mask.Background" Color="#FF202939" />
+      <SolidColorBrush x:Key="Privacy.Hidden.Foreground" Color="#FF98A2B3" />
+      <SolidColorBrush x:Key="Privacy.Icon.Foreground" Color="#FFD0D5DD" />
+      <SolidColorBrush x:Key="Privacy.Reveal.Focus" Color="#FF84CAFF" />
+      <SolidColorBrush x:Key="Privacy.Restricted.Indicator" Color="#FFFEC84B" />
     </ResourceDictionary>
   </ResourceDictionary.ThemeDictionaries>
 </ResourceDictionary>

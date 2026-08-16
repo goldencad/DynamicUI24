@@ -19,6 +19,7 @@ using DynamicUI24.Core.Templates;
 using DynamicUI24.Core.Setup;
 using DynamicUI24.Core.DataEntry;
 using DynamicUI24.Core.ImportExport;
+using DynamicUI24.Core.Privacy;
 using DynamicUI24.Shared.Presentation;
 
 namespace DynamicUI24.Demo;
@@ -36,6 +37,7 @@ public sealed partial class MainWindow : Window
     private readonly SetupWorkspaceHost setupWorkspaceHost;
     private readonly DemoDataEntryProvider dataEntryProvider;
     private readonly DataEntryGridHost dataEntryGridHost;
+    private readonly IPrivacyStateService privacyState;
     private readonly ImportExportWorkspaceHost importExportHost;
     private readonly TabControl dataEntryTabs;
     private readonly SharedStateView stateView;
@@ -113,8 +115,13 @@ public sealed partial class MainWindow : Window
             new SpecializedSetupValidator(setupProvider, composition.Registry), DemoSetup.CreateEditors(composition.Registry, setupProvider), localization, iconRegistry,
             companyContext.CurrentCompany, appearance: appearanceService);
         dataEntryProvider = new DemoDataEntryProvider();
-        dataEntryGridHost = new DataEntryGridHost(new DataEntryGridRuntime(DemoDataEntry.CreateDefinition(), dataEntryProvider),
-            localization, appearanceService);
+        privacyState = new PrivacyStateService();
+        var privacyResolver = new PrivacyPolicyResolver();
+        var sensitiveValuePresenter = new SensitiveValuePresenter();
+        dataEntryGridHost = new DataEntryGridHost(new DataEntryGridRuntime(DemoDataEntry.CreateDefinition(), dataEntryProvider,
+                privacyResolver: privacyResolver, privacyState: privacyState, sensitiveValuePresenter: sensitiveValuePresenter),
+            localization, appearanceService, privacyResolver: privacyResolver, privacyState: privacyState,
+            sensitivePresenter: sensitiveValuePresenter);
         importExportHost = new ImportExportWorkspaceHost(localization);
         importExportHost.ShowProfiles(DemoImportExport.ImportProfiles, DemoImportExport.ExportProfiles);
         dataEntryTabs = new TabControl
@@ -123,6 +130,7 @@ public sealed partial class MainWindow : Window
             {
                 new TabItem { Header = "Data", Content = dataEntryGridHost },
                 new TabItem { Header = "Import / Export", Content = importExportHost },
+                new TabItem { Header = "Privacy", Content = new DemoPrivacyPanel(privacyState) },
             },
             SelectedIndex = 0,
         };
@@ -152,6 +160,7 @@ public sealed partial class MainWindow : Window
             exitService);
         var menuComposer = new ApplicationMenuComposer();
         menuComposer.Register(new DemoPreferencesContributor());
+        menuComposer.Register(new PrivacyMenuContributor());
         shell.ApplicationMenuContent = new ApplicationMenuView(
             shellPresentation.Brand,
             menuComposer,
@@ -433,6 +442,7 @@ public sealed partial class MainWindow : Window
 
     private void ApplyCompanySnapshot(CompanyScopeSnapshot snapshot)
     {
+        privacyState.InvalidateContext(snapshot.Company.CompanyId.Value, workspaceHost.CurrentDefinition?.WorkspaceId);
         currentCompanyValue.Text = $"{snapshot.Company.DisplayName} · CompanyId={snapshot.Company.CompanyId}";
         companyStateValue.Text = $"{snapshot.Status} · v{snapshot.Version}";
         var profile = snapshot.ProfileResult?.Profile;
@@ -475,6 +485,9 @@ public sealed partial class MainWindow : Window
         }
 
         var definition = workspaces[index];
+        if (workspaceHost.CurrentDefinition?.WorkspaceId is { } previousWorkspace &&
+            !previousWorkspace.Equals(definition.WorkspaceId, StringComparison.OrdinalIgnoreCase))
+            privacyState.InvalidateContext(workspaceId: definition.WorkspaceId);
         if (workspaceHost.CurrentDefinition?.WorkspaceId == "data-entry-demo" && definition.WorkspaceId != "data-entry-demo")
             dataEntryGridHost.Deactivate();
         var result = workspaceHost.ShowWorkspace(definition);
@@ -839,6 +852,8 @@ public sealed partial class MainWindow : Window
                 await RunNotificationSmokeAsync();
                 smokeStage = "SETUP";
                 await RunSetupSmokeAsync();
+                smokeStage = "PRIVACY";
+                RunPrivacySmoke();
                 smokeStage = "CLEAN_EXIT";
                 Console.WriteLine("SMOKE CLEAN_EXIT: PASS");
                 Close();
@@ -859,6 +874,54 @@ public sealed partial class MainWindow : Window
         {
             smokeAdvancing = false;
         }
+    }
+
+    private void RunPrivacySmoke()
+    {
+        var generatedBeforePrivacyToggle = dataEntryProvider.GeneratedRowCount;
+        var resolver = new PrivacyPolicyResolver();
+        var presenter = new SensitiveValuePresenter();
+        var confidential = new SensitiveContentDefinition(Sensitivity.Confidential, PrivacyPresentation.PartialMask,
+            AllowTemporaryReveal: true, TemporaryRevealDuration: TimeSpan.FromSeconds(2),
+            PartialMask: new(0, 4, "•••• "));
+        var restricted = new SensitiveContentDefinition(Sensitivity.Restricted, PrivacyPresentation.CaptureProtect,
+            PrivacyPresentation.Mask);
+        foreach (var mode in Enum.GetValues<PrivacyMode>())
+        {
+            privacyState.SetRequestedMode(mode);
+            var restrictedResult = resolver.Resolve(new(true, restricted, mode,
+                CaptureCapability: CaptureProtectionCapability.Unsupported));
+            if (restrictedResult.Presentation != PrivacyPresentation.Mask || !restrictedResult.FallbackApplied)
+                throw new InvalidOperationException($"Restricted fallback failed in {mode}.");
+            Console.WriteLine($"SMOKE PRIVACY_MODE: REQUESTED={mode} EFFECTIVE={restrictedResult.EffectivePrivacyMode} RESTRICTED=MASK");
+        }
+        privacyState.SetRequestedMode(PrivacyMode.On);
+        var before = resolver.Resolve(new(true, confidential, privacyState.RequestedMode));
+        if (presenter.Present("CONTACT-12345678", confidential, before).DisplayValue.Contains("12345678", StringComparison.Ordinal))
+            throw new InvalidOperationException("Confidential value was not masked.");
+        var generation = privacyState.Generation;
+        if (!privacyState.BeginReveal(new("CONTACT_REFERENCE", RevealScope.Field, TimeSpan.FromSeconds(2), generation)))
+            throw new InvalidOperationException("Temporary reveal did not start.");
+        var revealed = resolver.Resolve(new(true, confidential, privacyState.RequestedMode,
+            IsTemporarilyRevealed: privacyState.IsRevealed("CONTACT_REFERENCE", generation)));
+        if (revealed.Presentation != PrivacyPresentation.None || revealed.CanCopy || revealed.CanExport)
+            throw new InvalidOperationException("Reveal/copy/export separation failed.");
+        privacyState.RevokeReveal();
+        if (privacyState.IsRevealed("CONTACT_REFERENCE", generation))
+            throw new InvalidOperationException("Temporary reveal did not revoke.");
+        var oldGeneration = privacyState.Generation;
+        privacyState.InvalidateContext("SMOKE_COMPANY", "SMOKE_WORKSPACE");
+        if (oldGeneration == privacyState.Generation)
+            throw new InvalidOperationException("Privacy context generation did not advance.");
+        if (!dataEntryGridHost.Runtime.IsVirtualized ||
+            dataEntryGridHost.Runtime.Rows.Length > dataEntryGridHost.Runtime.ViewportOptions.MaximumMaterializedRows ||
+            dataEntryProvider.GeneratedRowCount != generatedBeforePrivacyToggle)
+            throw new InvalidOperationException("Privacy changed 100K Grid virtualization bounds.");
+        Console.WriteLine("SMOKE PRIVACY_MENU: VISIBLE");
+        Console.WriteLine("SMOKE PRIVACY_REVEAL_REVOKE: PASS COPY_EXPORT_INDEPENDENT");
+        Console.WriteLine("SMOKE PRIVACY_GRID_FORM_NOTIFICATION_IMPORT_EXPORT_ACCESSIBILITY: SAFE_SHARED_RESOLVER");
+        Console.WriteLine("SMOKE PRIVACY_CAPTURE: UNSUPPORTED SAFE_FALLBACK_MASK");
+        Console.WriteLine("SMOKE PRIVACY_CONTEXT: COMPANY_WORKSPACE_GENERATION_SAFE");
     }
 
     private async Task RunRibbonSmokeAsync()
@@ -1045,7 +1108,7 @@ public sealed partial class MainWindow : Window
             !Equals(runtime.GetValue(third.RowKey, name, out _), originalName))
             throw new InvalidOperationException("2x3 native clipboard paste failed.");
 
-        var notes = new VariableCode("NOTES");
+        var notes = new VariableCode("PUBLIC_NOTE");
         await nativeClipboard.SetTextAsync("filled note");
         runtime.SelectCell(new(first.RowKey, notes), runtime.ViewportStartIndex);
         runtime.SelectCell(new(third.RowKey, notes), runtime.ViewportStartIndex + 2, extend: true);
@@ -1109,6 +1172,7 @@ public sealed partial class MainWindow : Window
         var selectedKey = first.RowKey; runtime.Select([selectedKey]);
         var sortGeneration = runtime.Generation;
         await dataEntryGridHost.SortAsync(new("ITEM_CODE"), GridSortDirection.Descending);
+        await dataEntryGridHost.RequestViewportAsync(0);
         if (runtime.Generation <= sortGeneration || runtime.State != GridProviderState.Ready || runtime.Rows.IsEmpty ||
             runtime.Sorts is not [{ VariableCode.Value: "ITEM_CODE", Direction: GridSortDirection.Descending }] ||
             !runtime.SelectedRowKeys.Contains(selectedKey) || runtime.Rows[0].RowKey == selectedKey)

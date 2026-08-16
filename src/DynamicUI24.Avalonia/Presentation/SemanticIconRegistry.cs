@@ -70,5 +70,12 @@ public sealed class SemanticIconRegistry : IIconRegistry
         Register(new(StandardIconKeys.Publish, "M12,20 L12,5 M7,10 L12,5 L17,10 M5,20 L19,20"));
         Register(new(StandardIconKeys.Retire, "M5,7 L19,7 M8,7 L8,20 M16,7 L16,20 M7,4 L17,4 L19,7 L5,7 Z M11,11 L15,15 M15,11 L11,15"));
         Register(new(StandardIconKeys.More, new FontGlyphIconSource("⋯", ".AppleSystemUIFont")));
+        Register(new(StandardIconKeys.Privacy, "M12,3 C7,3 4,7 4,12 C4,17 8,20 12,22 C16,20 20,17 20,12 C20,7 17,3 12,3 M9,12 A3,3 0 1 0 15,12 A3,3 0 1 0 9,12"));
+        Register(new(StandardIconKeys.PrivacyOn, "M6,11 L6,20 L18,20 L18,11 Z M8,11 L8,8 A4,4 0 0 1 16,8 L16,11"));
+        Register(new(StandardIconKeys.PrivacyOff, "M5,5 L19,19 M6,11 L6,20 L18,20 L18,11 M9,9 L9,8 A3,3 0 0 1 14,6"));
+        Register(new(StandardIconKeys.PrivacyAuto, "M6,11 L6,20 L18,20 L18,11 Z M8,11 L8,8 A4,4 0 0 1 16,8 L16,11 M12,14 L12,17"));
+        Register(new(StandardIconKeys.Reveal, "M2,12 C6,5 18,5 22,12 C18,19 6,19 2,12 M12,9 A3,3 0 1 0 12,15 A3,3 0 1 0 12,9"));
+        Register(new(StandardIconKeys.Hide, "M3,3 L21,21 M2,12 C6,5 18,5 22,12"));
+        Register(new(StandardIconKeys.Restricted, "M12,3 L21,7 L20,15 C18,19 15,21 12,22 C9,21 6,19 4,15 L3,7 Z"));
     }
 }

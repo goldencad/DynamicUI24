@@ -10,6 +10,17 @@ public sealed class DictionaryLocalizationService : ILocalizationService
         {
             ["en-US"] = new Dictionary<string, string>(StringComparer.Ordinal)
             {
+                ["Privacy.Title"] = "Privacy",
+                ["Privacy.Auto"] = "Auto",
+                ["Privacy.On"] = "On",
+                ["Privacy.Off"] = "Off",
+                ["Privacy.Reveal"] = "Reveal temporarily",
+                ["Privacy.Hidden"] = "Hidden",
+                ["Privacy.Settings"] = "Privacy settings…",
+                ["Privacy.PolicyProtected"] = "Restricted content protected by policy",
+                ["Privacy.CopyBlocked"] = "Copy blocked by privacy policy",
+                ["Privacy.ExportBlocked"] = "Export blocked by privacy policy",
+                ["Privacy.CaptureFallback"] = "Capture protection unavailable; safe masking applied",
                 ["Shell.Workspace"] = "Workspace",
                 ["Shell.Template"] = "Template code",
                 ["Shell.Module"] = "Resolved module",
@@ -293,6 +304,17 @@ public sealed class DictionaryLocalizationService : ILocalizationService
             },
             ["vi-VN"] = new Dictionary<string, string>(StringComparer.Ordinal)
             {
+                ["Privacy.Title"] = "Riêng tư",
+                ["Privacy.Auto"] = "Tự động",
+                ["Privacy.On"] = "Bật",
+                ["Privacy.Off"] = "Tắt",
+                ["Privacy.Reveal"] = "Hiện tạm thời",
+                ["Privacy.Hidden"] = "Đã ẩn",
+                ["Privacy.Settings"] = "Cài đặt quyền riêng tư…",
+                ["Privacy.PolicyProtected"] = "Nội dung hạn chế được chính sách bảo vệ",
+                ["Privacy.CopyBlocked"] = "Chính sách riêng tư chặn sao chép",
+                ["Privacy.ExportBlocked"] = "Chính sách riêng tư chặn xuất dữ liệu",
+                ["Privacy.CaptureFallback"] = "Không có bảo vệ chụp màn hình; đã che an toàn",
                 ["Shell.Workspace"] = "Không gian làm việc",
                 ["Shell.Template"] = "Mã template",
                 ["Shell.Module"] = "Module đã phân giải",

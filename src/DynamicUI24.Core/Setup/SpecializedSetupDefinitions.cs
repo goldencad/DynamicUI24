@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using DynamicUI24.Core.Privacy;
 using DynamicUI24.Core.Templates;
 
 namespace DynamicUI24.Core.Setup;
@@ -79,11 +80,13 @@ public sealed record ColumnDefinition(string ColumnId, string ColumnCode, Variab
     string DisplayNameKey, string? DescriptionKey, ColumnDataType DataType, ColumnEditorKind EditorKind,
     ColumnMode Mode, int DisplayOrder, decimal? Width, decimal? MinWidth, decimal? MaxWidth,
     bool IsVisible, bool IsRequired, string? PermissionRequirement, string? Format, string? DefaultValue,
-    string? ValidationDefinition, string? FormulaDefinitionId, int Version, SetupDefinitionStatus Status);
+    string? ValidationDefinition, string? FormulaDefinitionId, int Version, SetupDefinitionStatus Status,
+    SensitiveContentDefinition? SensitiveContent = null);
 
 public sealed record VariableDefinition(string VariableId, VariableCode VariableCode, string DisplayNameKey,
     string? DescriptionKey, ColumnDataType DataType, VariableScope Scope, int Version,
-    SetupDefinitionStatus Status, bool IsSystem, string? PermissionRequirement = null);
+    SetupDefinitionStatus Status, bool IsSystem, string? PermissionRequirement = null,
+    SensitiveContentDefinition? SensitiveContent = null);
 
 /// <summary>Declarative metadata only. ExpressionText is never executed by the Setup framework.</summary>
 public sealed record FormulaDefinition(string FormulaId, string FormulaCode, string DisplayNameKey,

@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Globalization;
 using DynamicUI24.Core.Setup;
+using DynamicUI24.Core.Privacy;
 
 namespace DynamicUI24.Core.DataEntry;
 
@@ -124,8 +125,16 @@ public sealed partial class DataEntryGridRuntime
                 requiresConfirmation: true));
         var rows = await ResolveRowsAsync(range.MinimumRowPosition, range.RowCount, cancellationToken).ConfigureAwait(false);
         if (rows.Length != range.RowCount) return (null, GridPasteResult.Rejected("GRID_RANGE_ROWS_UNAVAILABLE"));
-        var values = rows.Select(row => columns.Select(column => row.Values.GetValueOrDefault(column.Definition.VariableCode)));
-        return (GridClipboardText.Serialize(values, columns.Select(x => x.Definition).ToArray(), culture), null);
+        var values = rows.Select(row => columns.Select(column =>
+        {
+            var fieldKey = $"{row.RowKey}:{column.Definition.VariableCode}";
+            var resolution = privacyResolver.Resolve(new(true, column.Definition.SensitiveContent,
+                privacyState.RequestedMode, CompanyId: context?.Company.CompanyId, WorkspaceId: context?.WorkspaceId,
+                IsTemporarilyRevealed: privacyState.IsRevealed(fieldKey, privacyState.Generation),
+                Generation: privacyState.Generation));
+            return new PrivacyClipboardValue(row.Values.GetValueOrDefault(column.Definition.VariableCode), column.Definition, resolution);
+        }));
+        return (PrivacyClipboardPolicy.Serialize(values, sensitiveValuePresenter, culture: culture), null);
     }
 
     public async Task<GridPasteResult> PasteAsync(IGridClipboardService clipboard, bool confirmLargePaste = false,
