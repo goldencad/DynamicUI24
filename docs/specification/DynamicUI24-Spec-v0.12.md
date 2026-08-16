@@ -501,14 +501,37 @@ Use existing S2 specificity/precedence.
 
 Sheet UI reuses P1.
 
-Inactive/hidden sensitive data must not leak via:
+Inactive, hidden, restricted or sensitive sheet data must not leak through any presentation or lifecycle surface.
 
-- subtitle;
+At minimum protected data must not leak via:
+
+- sheet title/subtitle;
 - tooltip;
-- overflow menu;
-- Search/Recent;
+- tab/overflow menu;
+- Search/Recent/Quick Access;
 - Context Panel;
-- notification.
+- notification;
+- formula presentation;
+- formula diagnostics;
+- clipboard;
+- import preview;
+- export;
+- accessibility/automation text;
+- duplicate;
+- Save As;
+- clone diagnostics;
+- lifecycle confirmation;
+- inactive-sheet visual cache.
+
+Cross-sheet calculation does not grant presentation permission.
+
+A formula may be authorized to calculate from protected data while source/reference presentation remains governed by P1.
+
+Duplicate/Save As MUST re-resolve privacy, permission and export/copy policy for the target sheet or data context. Cloning must never become a bypass for restricted data.
+
+Export from a sheet or formula-derived result remains subject to the P1 export-security boundary.
+
+Accessibility presentation must never expose raw restricted values merely because the value originated from another sheet or a formula result.
 
 ---
 
@@ -691,11 +714,37 @@ Reference remapping must use semantic calculation contracts.
 
 ---
 
-## 45. Cross-Sheet Dependency Validation Seam
-
-DynamicUI24 may surface diagnostics supplied by the existing calculation layer, such as unresolved SheetCode, broken references, clone-mapping collisions or delete dependencies.
+## 45. Cross-Sheet Dependency Validation and Recalculation Contract
 
 DynamicUI24 remains a presenter/coordinator, not the calculation engine.
+
+The existing TS24 Calculation Engine remains authoritative and MUST provide deterministic cross-sheet dependency semantics.
+
+For the same published metadata, data state and calculation inputs:
+
+- dependency resolution order must be deterministic;
+- affected cross-sheet dependencies must resolve consistently;
+- recalculation must propagate to dependent sheets and variables;
+- changing an input on one sheet may invalidate and recalculate dependent results on other sheets;
+- UI tab order, localized title, hidden state and visual activation order must not affect calculation results.
+
+DynamicUI24 may request or observe recalculation through an application-neutral compatibility seam, but MUST NOT evaluate formulas itself.
+
+The existing calculation layer may return diagnostics including:
+
+- unresolved SheetCode;
+- unresolved VariableCode;
+- broken references;
+- clone-mapping collisions;
+- delete dependencies;
+- recalculation failures;
+- circular or cyclic dependencies.
+
+Circular or cyclic cross-sheet dependencies MUST be detected by the authoritative calculation layer and MUST fail safely.
+
+A cycle MUST NOT cause uncontrolled recursion, infinite recalculation, UI-thread hangs, unbounded task creation or process crashes.
+
+DynamicUI24 presents these diagnostics safely and MUST NOT repair formula semantics automatically.
 
 ---
 
@@ -1301,6 +1350,21 @@ DynamicUI24 MUST NOT:
 Existing TS24 Calculation Engine remains authoritative.
 ```
 
+The authoritative TS24 Calculation Engine is expected to provide:
+
+```text
+- deterministic dependency resolution;
+- affected-node recalculation;
+- cross-sheet recalculation propagation;
+- circular/cyclic dependency detection;
+- safe calculation failure;
+- semantic SheetCode / VariableCode reference handling.
+```
+
+DynamicUI24 only coordinates and presents these outcomes through semantic contracts.
+
+Sheet activation, rename, reorder, hide/show and localization MUST NOT influence calculation ordering or results.
+
 ---
 
 ## 106. Formula Reference Contract
@@ -1668,6 +1732,12 @@ The existing TS24 calculation engine must remain authoritative and no new formul
 
 ```text
 Existing TS24 Calculation Engine already supports cross-sheet calculations.
+
+Treat the existing TS24 Calculation Engine as authoritative for:
+
+- deterministic cross-sheet dependency resolution;
+- recalculation propagation;
+- circular/cyclic dependency detection and safe failure.
 
 Do NOT create a second formula engine.
 
