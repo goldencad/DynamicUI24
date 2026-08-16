@@ -79,6 +79,8 @@ internal sealed class DemoAuthorizationPresentationProvider : IAuthorizationPres
 {
     private static readonly PermissionCode DataView = new("DATA.VIEW");
     private static readonly PermissionCode DataEdit = new("DATA.EDIT");
+    private static readonly PermissionCode DataImport = new("DATA.IMPORT");
+    private static readonly PermissionCode DataExport = new("DATA.EXPORT");
     private static readonly PermissionCode ReportView = new("REPORT.VIEW");
     private static readonly PermissionCode SetupView = new("SETUP.VIEW");
     private static readonly PermissionCode SetupCreate = new("SETUP.CREATE");
@@ -112,14 +114,14 @@ internal sealed class DemoAuthorizationPresentationProvider : IAuthorizationPres
         if (companyId == DemoCompanyData.CompanyAId)
         {
             return new(userContext.UserId, companyId,
-                [DataView, DataEdit, ReportView, SetupView, SetupCreate, SetupEdit, SetupValidate, SetupPublish, SetupRetire],
+                [DataView, DataEdit, DataImport, DataExport, ReportView, SetupView, SetupCreate, SetupEdit, SetupValidate, SetupPublish, SetupRetire],
                 [ReportExport, Editing], currentRevision);
         }
 
         if (companyId == DemoCompanyData.CompanyBId)
         {
             return new(userContext.UserId, companyId,
-                [DataView, ReportView, SetupView, SetupCreate, SetupValidate], [ReportExport], currentRevision);
+                [DataView, DataExport, ReportView, SetupView, SetupCreate, SetupValidate], [ReportExport], currentRevision);
         }
 
         return EffectiveAuthorizationContext.Unavailable(

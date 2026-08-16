@@ -18,5 +18,6 @@
     <ProjectReference Include="../../src/Templates/DynamicUI24.Template.HistoryDocument/DynamicUI24.Template.HistoryDocument.csproj" />
     <ProjectReference Include="../../src/Templates/DynamicUI24.Template.Dashboard/DynamicUI24.Template.Dashboard.csproj" />
     <ProjectReference Include="../../src/Templates/DynamicUI24.Template.Signing/DynamicUI24.Template.Signing.csproj" />
+    <ProjectReference Include="../../src/Extensions/DynamicUI24.Excel/DynamicUI24.Excel.csproj" />
   </ItemGroup>
 </Project>

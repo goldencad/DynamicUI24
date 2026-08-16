@@ -1,4 +1,5 @@
 using Avalonia;
+using System.Text;
 using Avalonia.Controls;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Input;
@@ -17,6 +18,7 @@ using DynamicUI24.Core.Ribbon;
 using DynamicUI24.Core.Templates;
 using DynamicUI24.Core.Setup;
 using DynamicUI24.Core.DataEntry;
+using DynamicUI24.Core.ImportExport;
 using DynamicUI24.Shared.Presentation;
 
 namespace DynamicUI24.Demo;
@@ -34,6 +36,8 @@ public sealed partial class MainWindow : Window
     private readonly SetupWorkspaceHost setupWorkspaceHost;
     private readonly DemoDataEntryProvider dataEntryProvider;
     private readonly DataEntryGridHost dataEntryGridHost;
+    private readonly ImportExportWorkspaceHost importExportHost;
+    private readonly TabControl dataEntryTabs;
     private readonly SharedStateView stateView;
     private readonly ICompanyContextProvider companyContext;
     private readonly CompanyScopeCoordinator companyScope;
@@ -83,6 +87,7 @@ public sealed partial class MainWindow : Window
     private DispatcherTimer? smokeTimer;
     private int smokeStep;
     private bool smokeAdvancing;
+    private string smokeStage = "STARTUP";
     private int actionRefreshCount;
 
     public MainWindow()
@@ -110,6 +115,17 @@ public sealed partial class MainWindow : Window
         dataEntryProvider = new DemoDataEntryProvider();
         dataEntryGridHost = new DataEntryGridHost(new DataEntryGridRuntime(DemoDataEntry.CreateDefinition(), dataEntryProvider),
             localization, appearanceService);
+        importExportHost = new ImportExportWorkspaceHost(localization);
+        importExportHost.ShowProfiles(DemoImportExport.ImportProfiles, DemoImportExport.ExportProfiles);
+        dataEntryTabs = new TabControl
+        {
+            ItemsSource = new object[]
+            {
+                new TabItem { Header = "Data", Content = dataEntryGridHost },
+                new TabItem { Header = "Import / Export", Content = importExportHost },
+            },
+            SelectedIndex = 0,
+        };
         dataEntryGridHost.Changed += (_, _) =>
         {
             if (workspaceHost.CurrentDefinition?.WorkspaceId == "data-entry-demo")
@@ -119,7 +135,7 @@ public sealed partial class MainWindow : Window
             }
         };
         workspaceHost.RegisterViewFactory(StandardTemplateCodes.Setup, _ => setupWorkspaceHost);
-        workspaceHost.RegisterViewFactory(StandardTemplateCodes.DataEntry, _ => dataEntryGridHost);
+        workspaceHost.RegisterViewFactory(StandardTemplateCodes.DataEntry, _ => dataEntryTabs);
         workspaceNavigation = new WorkspaceNavigationService(workspaces);
         workspaceNavigation.NavigationChanged += (_, args) =>
         {
@@ -169,6 +185,14 @@ public sealed partial class MainWindow : Window
         actionCommands.Register("DEMO.GRID.UNDO", async (_, token) => GridActionResult(await dataEntryGridHost.UndoAsync(token)));
         actionCommands.Register("DEMO.GRID.REDO", async (_, token) => GridActionResult(await dataEntryGridHost.RedoAsync(token)));
         actionCommands.Register("DEMO.GRID.CLEAR", async (_, token) => GridActionResult(await dataEntryGridHost.ClearSelectionAsync(token)));
+        foreach (var command in new[] { "DEMO.IMPORT.PROFILE", "DEMO.IMPORT.XLSX", "DEMO.IMPORT.CSV", "DEMO.IMPORT.CUSTOM",
+                     "DEMO.EXPORT.VIEW", "DEMO.EXPORT.SELECTED", "DEMO.EXPORT.FILTERED" })
+            actionCommands.Register(command, (_, _) =>
+            {
+                dataEntryTabs.SelectedIndex = 1;
+                importExportHost.ShowProfiles(DemoImportExport.ImportProfiles, DemoImportExport.ExportProfiles);
+                return Task.FromResult(ActionCommandResult.Success($"Opened generic import/export host for {command}."));
+            });
         actionCommands.Register("DEMO.UPDATE_AND_RESTART", (_, _) =>
             Task.FromResult(ActionCommandResult.Success("Update-ready guidance command dispatched; no updater was run.")));
         actionDispatcher = new ActionBarCommandDispatcher(
@@ -803,17 +827,33 @@ public sealed partial class MainWindow : Window
             else
             {
                 smokeTimer!.Stop();
+                smokeStage = "RIBBON";
                 await RunRibbonSmokeAsync();
+                smokeStage = "ACTION_BARS";
                 await RunActionBarSmokeAsync();
+                smokeStage = "DATA_ENTRY";
                 await RunDataEntrySmokeAsync();
+                smokeStage = "IMPORT_EXPORT";
+                await RunImportExportSmokeAsync();
+                smokeStage = "NOTIFICATIONS";
                 await RunNotificationSmokeAsync();
+                smokeStage = "SETUP";
                 await RunSetupSmokeAsync();
+                smokeStage = "CLEAN_EXIT";
                 Console.WriteLine("SMOKE CLEAN_EXIT: PASS");
                 Close();
                 return;
             }
 
             smokeStep++;
+        }
+        catch (Exception exception)
+        {
+            smokeTimer?.Stop();
+            Console.Error.WriteLine($"SMOKE FAILURE: STAGE={smokeStage} STEP={smokeStep} " +
+                                    $"{exception.GetType().FullName}: {exception.Message}");
+            Console.Error.WriteLine(exception);
+            Close();
         }
         finally
         {
@@ -953,7 +993,8 @@ public sealed partial class MainWindow : Window
         workspaceSelector.SelectedIndex = workspaces.ToList().FindIndex(x => x.WorkspaceId == "data-entry-demo");
         await LoadDataEntryAsync(companyContext.CurrentCompany, companyScope.Snapshot.AuthorizationContext);
         var runtime = dataEntryGridHost.Runtime;
-        if (workspaceHost.Content != dataEntryGridHost || dataEntryGridHost.RenderedColumnCount < 10 ||
+        dataEntryTabs.SelectedIndex = 0;
+        if (workspaceHost.Content != dataEntryTabs || dataEntryGridHost.RenderedColumnCount < 10 ||
             dataEntryGridHost.RenderedRowCount < 20 || runtime.ResolvedDefinition.Columns.Any(x =>
                 x.Definition.VariableCode == new VariableCode("PRIVILEGED_NOTE") && x.IsVisible))
             throw new InvalidOperationException("Dynamic DataEntry columns, rows, or permission-hidden values failed.");
@@ -1064,23 +1105,40 @@ public sealed partial class MainWindow : Window
         dataEntryGridHost.CancelEdit();
         Console.WriteLine($"SMOKE GRID_FAR_JUMP_EDIT_CACHE: ROW=90001 MATERIALIZED={runtime.Rows.Length} CACHE={runtime.CachedWindowCount} PASS");
 
+        smokeStage = "DATA_ENTRY_SORT";
         var selectedKey = first.RowKey; runtime.Select([selectedKey]);
+        var sortGeneration = runtime.Generation;
         await dataEntryGridHost.SortAsync(new("ITEM_CODE"), GridSortDirection.Descending);
-        await Task.Delay(220);
-        if (!runtime.SelectedRowKeys.Contains(selectedKey) || runtime.Rows[0].RowKey == selectedKey)
+        if (runtime.Generation <= sortGeneration || runtime.State != GridProviderState.Ready || runtime.Rows.IsEmpty ||
+            runtime.Sorts is not [{ VariableCode.Value: "ITEM_CODE", Direction: GridSortDirection.Descending }] ||
+            !runtime.SelectedRowKeys.Contains(selectedKey) || runtime.Rows[0].RowKey == selectedKey)
             throw new InvalidOperationException($"Sort did not preserve RowKey selection: selected={runtime.SelectedRowKeys.Contains(selectedKey)} " +
-                $"selectedKey={selectedKey} first={runtime.Rows[0].RowKey} sort={runtime.Sorts.FirstOrDefault()?.Direction}.");
+                $"selectedKey={selectedKey} first={runtime.Rows.FirstOrDefault()?.RowKey.ToString() ?? "NONE"} " +
+                $"state={runtime.State} generation={runtime.Generation}/{sortGeneration} sort={runtime.Sorts.FirstOrDefault()?.Direction}.");
+        smokeStage = "DATA_ENTRY_FILTER";
+        var filterGeneration = runtime.Generation;
         await dataEntryGridHost.FilterAsync(new(new("ITEM_CODE"), GridFilterOperator.Contains, "-00"));
-        if (runtime.VisibleRows is <= 0 or >= DemoDataEntryProvider.LogicalRowCount || !runtime.SelectedRowKeys.Contains(selectedKey))
-            throw new InvalidOperationException("Filter/count/selection behavior failed.");
+        if (runtime.Generation <= filterGeneration || runtime.State != GridProviderState.Ready || runtime.Filters.Length != 1 ||
+            runtime.VisibleRows is <= 0 or >= DemoDataEntryProvider.LogicalRowCount || !runtime.SelectedRowKeys.Contains(selectedKey))
+            throw new InvalidOperationException($"Filter/count/selection behavior failed: state={runtime.State} " +
+                $"generation={runtime.Generation}/{filterGeneration} filters={runtime.Filters.Length} visible={runtime.VisibleRows} " +
+                $"selected={runtime.SelectedRowKeys.Contains(selectedKey)}.");
+        smokeStage = "DATA_ENTRY_CLEAR_FILTER";
+        var clearGeneration = runtime.Generation;
         await dataEntryGridHost.ClearFilterAsync();
+        if (runtime.Generation <= clearGeneration || runtime.State != GridProviderState.Ready || !runtime.Filters.IsEmpty ||
+            runtime.VisibleRows != DemoDataEntryProvider.LogicalRowCount)
+            throw new InvalidOperationException($"Clear filter completion failed: state={runtime.State} " +
+                $"generation={runtime.Generation}/{clearGeneration} filters={runtime.Filters.Length} visible={runtime.VisibleRows}.");
         Console.WriteLine("SMOKE GRID_SORT_FILTER_STATUS: ASC_DESC_CONTAINS_CLEAR PASS");
 
+        smokeStage = "DATA_ENTRY_PRESENTATION";
         localization.TrySetCulture("vi-VN"); themeSelector.SelectedItem = ThemeMode.System;
         localization.TrySetCulture("en-US"); themeSelector.SelectedItem = ThemeMode.Light; themeSelector.SelectedItem = ThemeMode.Dark;
         if (!runtime.SelectedRowKeys.Contains(selectedKey)) throw new InvalidOperationException("Presentation changes lost grid selection.");
         Console.WriteLine("SMOKE GRID_LOCALIZATION_THEME_KEYBOARD_ACCESSIBILITY: VI_EN_SYSTEM_LIGHT_DARK PASS");
 
+        smokeStage = "DATA_ENTRY_PROVIDER_RECOVERY";
         var requestsBeforeRefresh = dataEntryProvider.ViewportRequestCount;
         dataEntryProvider.SimulateFailure = true; await dataEntryGridHost.RefreshAsync();
         if (runtime.State != GridProviderState.Error || runtime.DiagnosticCode != "GRID_PROVIDER_FAILED")
@@ -1090,6 +1148,7 @@ public sealed partial class MainWindow : Window
             throw new InvalidOperationException("Refresh did not remain scoped to the current viewport.");
         Console.WriteLine("SMOKE GRID_PROVIDER_ERROR: SAFE_FAILURE_RECOVERY PASS");
 
+        smokeStage = "DATA_ENTRY_STALE_COMPANY";
         var companyA = companyContext.AvailableCompanies.Single(x => x.CompanyId == DemoCompanyData.CompanyAId);
         var companyB = companyContext.AvailableCompanies.Single(x => x.CompanyId == DemoCompanyData.CompanyBId);
         var staleA = dataEntryGridHost.LoadAsync(new(companyA, "data-entry-demo"), companyScope.Snapshot.AuthorizationContext);
@@ -1098,6 +1157,91 @@ public sealed partial class MainWindow : Window
         if (runtime.Rows.Any(x => !x.RowKey.Value.StartsWith($"{companyB.CompanyId.Value}:", StringComparison.Ordinal)))
             throw new InvalidOperationException("Stale Company A response replaced Company B rows.");
         Console.WriteLine("SMOKE GRID_COMPANY_STALE_RESPONSE: A_TO_B_BLOCKED PASS");
+    }
+
+    private async Task RunImportExportSmokeAsync()
+    {
+        await companyScope.SwitchCompanyAsync(DemoCompanyData.CompanyAId);
+        workspaceSelector.SelectedIndex = workspaces.ToList().FindIndex(x => x.WorkspaceId == "data-entry-demo");
+        dataEntryTabs.SelectedIndex = 1;
+        var registry = DemoImportExport.CreateRegistry();
+        var parserCodes = registry.Parsers.Select(x => x.ParserCode).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var code in new[] { ImportParserCodes.Xlsx, ImportParserCodes.Csv, ImportParserCodes.Tsv, ImportParserCodes.Json,
+                     ImportParserCodes.Xml, ImportParserCodes.FixedWidth, DemoImportExport.CustomCode })
+            if (!parserCodes.Contains(code)) throw new InvalidOperationException($"Import parser {code} is missing from the generic host.");
+        Console.WriteLine("SMOKE IMPORT_PROFILES: XLSX CSV TSV JSON XML FIXED_WIDTH CUSTOM_DEMO VISIBLE");
+
+        var definition = DemoImportExport.ImportProfiles.Single(x => x.ParserCode == DemoImportExport.CustomCode);
+        var text = "@record\ncode=NEW-001\nname=Imported sample\nquantity=12\n@end\n" +
+                   "@record\ncode=NEW-002\nname=Invalid sample\nquantity=bad\n@end\n";
+        var bytes = Encoding.UTF8.GetBytes(text); var engine = new ImportEngine(registry);
+        await using var inspectStream = new MemoryStream(bytes);
+        var schema = await engine.InspectAsync(inspectStream, definition, "demo.custom");
+        var resolved = GridMetadataResolver.Resolve(DemoDataEntry.CreateDefinition(), companyScope.Snapshot.AuthorizationContext);
+        var auto = ImportAutoMapper.Map(schema, resolved.Columns);
+        if (schema.Fields.Length != 3 || auto.Mappings.Length != 3) throw new InvalidOperationException("Custom schema inspection/auto-map failed.");
+        var manual = definition.Mappings.Select(x => x.SourceField == "name" ? new ImportFieldMapping(x.MappingId, x.SourceField,
+            new VariableCode("NOTES"), x.DisplayOrder, x.SourceIndex, x.Required, x.DataTypeOverride, x.ConverterCode) : x).ToArray();
+        if (!manual.Any(x => x.TargetVariableCode == new VariableCode("NOTES"))) throw new InvalidOperationException("Manual mapping change failed.");
+        Console.WriteLine("SMOKE IMPORT_SCHEMA_AUTOMAP_MANUAL: PASS");
+
+        await using var previewStream = new MemoryStream(bytes);
+        var preview = await engine.PreviewAsync(previewStream, definition, resolved,
+            new Progress<ImportExportProgress>(importExportHost.ReportProgress));
+        importExportHost.ShowSource("demo.custom", definition, schema, definition.Mappings,
+            resolved.Columns.Where(x => x.CanEdit).Select(x => x.Definition.VariableCode.Value));
+        importExportHost.ShowPreview(preview); importExportHost.EndProgress();
+        if (preview.MaterializedRowCount > definition.MaxPreviewRows || preview.ValidRows != 1 || preview.InvalidRows != 1 ||
+            !preview.Diagnostics.Any(x => x.Code == "IMPORT_CONVERSION_FAILED"))
+            throw new InvalidOperationException("Bounded preview or diagnostics failed.");
+        Console.WriteLine("SMOKE IMPORT_PREVIEW_DIAGNOSTICS: VALID=1 INVALID=1 BOUNDED PASS");
+
+        var partial = new ImportDefinition(definition.ImportId, definition.ImportCode, definition.DisplayNameKey, definition.ParserCode,
+            definition.FileExtensions, definition.Mappings, commitMode: ImportCommitMode.PartialValid);
+        var operation = new ImportExportOperationContext(new(companyContext.CurrentCompany, "data-entry-demo"), companyScope.Snapshot.AuthorizationContext);
+        await using var commitStream = new MemoryStream(bytes);
+        var committed = await engine.CommitAsync(commitStream, partial, resolved, dataEntryProvider, operation,
+            progress: new Progress<ImportExportProgress>(importExportHost.ReportProgress));
+        if (committed.ImportedRecords != 1 || committed.InvalidRecords != 1) throw new InvalidOperationException("Partial import commit failed.");
+        Console.WriteLine("SMOKE IMPORT_COMMIT_CUSTOM: IMPORTED=1 INVALID=1 PASS");
+
+        using var cancel = new CancellationTokenSource(); cancel.Cancel(); await using var cancelledStream = new MemoryStream(bytes);
+        await AssertCancelledAsync(() => engine.PreviewAsync(cancelledStream, definition, resolved, cancellationToken: cancel.Token));
+        var session = new ImportSession(definition, operation); session.MoveTo(ImportSessionState.Inspect);
+        await companyScope.SwitchCompanyAsync(DemoCompanyData.CompanyBId);
+        var changed = operation with { GridContext = new(companyContext.CurrentCompany, "data-entry-demo") };
+        if (session.IsCurrent(changed)) throw new InvalidOperationException("Company session guard did not invalidate stale context.");
+        session.Invalidate(); Console.WriteLine("SMOKE IMPORT_CANCEL_COMPANY_GUARD: PASS");
+
+        await companyScope.SwitchCompanyAsync(DemoCompanyData.CompanyAId);
+        operation = new(new(companyContext.CurrentCompany, "data-entry-demo"), companyScope.Snapshot.AuthorizationContext);
+        var exportEngine = new ExportEngine(registry);
+        foreach (var scope in new[] { ExportScope.CurrentView, ExportScope.SelectedRows, ExportScope.AllFiltered })
+        {
+            var profile = DemoImportExport.ExportProfiles.First(x => x.WriterCode == ExportWriterCodes.Csv);
+            var scoped = new ExportDefinition(profile.ExportId, $"{profile.ExportCode}_{scope}", profile.DisplayNameKey, profile.WriterCode,
+                profile.FileExtension, profile.Fields, scope: scope);
+            await using var output = new MemoryStream();
+            var result = await exportEngine.ExportAsync(output, scoped, resolved, dataEntryProvider, operation,
+                scope == ExportScope.SelectedRows ? dataEntryGridHost.Runtime.SelectedRowKeys : null, cancellationToken: default);
+            if (!result.IsSuccess) throw new InvalidOperationException($"Export scope {scope} failed.");
+        }
+        var customExport = DemoImportExport.ExportProfiles.Single(x => x.WriterCode == DemoImportExport.CustomCode);
+        var allRows = new ExportDefinition(customExport.ExportId, "DEMO_CUSTOM_ALL", customExport.DisplayNameKey,
+            customExport.WriterCode, customExport.FileExtension, customExport.Fields, scope: ExportScope.AllRows);
+        var largeResult = await exportEngine.ExportAsync(Stream.Null, allRows, resolved, dataEntryProvider, operation,
+            progress: new Progress<ImportExportProgress>(importExportHost.ReportProgress));
+        importExportHost.EndProgress();
+        if (!largeResult.IsSuccess || largeResult.RecordsWritten != DemoDataEntryProvider.LogicalRowCount)
+            throw new InvalidOperationException("100K custom streaming export failed.");
+        Console.WriteLine("SMOKE EXPORT_SCOPES_CUSTOM_100K_PROGRESS: CURRENT SELECTED FILTERED ALL_ROWS PASS");
+        dataEntryTabs.SelectedIndex = 0;
+
+        static async Task AssertCancelledAsync(Func<Task> action)
+        {
+            try { await action(); throw new InvalidOperationException("Cancelled import completed unexpectedly."); }
+            catch (OperationCanceledException) { }
+        }
     }
 
     private sealed class UnavailableGridClipboard : IGridClipboardService

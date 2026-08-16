@@ -3,6 +3,7 @@ using System.Globalization;
 using DynamicUI24.Core.DataEntry;
 using DynamicUI24.Core.Setup;
 using DynamicUI24.Core.Companies;
+using DynamicUI24.Core.ImportExport;
 using DynamicUI24.Shared.Presentation;
 
 namespace DynamicUI24.Demo;
@@ -39,7 +40,8 @@ internal static class DemoDataEntry
             visible, required, permission, format, null, null, null, 1, SetupDefinitionStatus.Published);
 }
 
-internal sealed class DemoDataEntryProvider : IVirtualizedGridDataProvider, IGridLogicalRowProvider, IGridBatchEditProvider
+internal sealed class DemoDataEntryProvider : IVirtualizedGridDataProvider, IGridLogicalRowProvider, IGridBatchEditProvider,
+    IGridBatchRowImportProvider, IGridExportProvider
 {
     public const int LogicalRowCount = 100_000;
     private readonly object sync = new();
@@ -141,6 +143,41 @@ internal sealed class DemoDataEntryProvider : IVirtualizedGridDataProvider, IGri
                 edits[(context.Company.CompanyId, item.Change.RowKey, item.Change.VariableCode)] = item.Value;
             return Task.FromResult(GridBatchCommitResult.Success);
         }
+    }
+
+    public Task<ImportBatchResult> ImportRowsAsync(GridProviderContext context, ImportBatchRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var results = request.Rows.Select((row, index) =>
+        {
+            var rowKey = new RowKey($"{context.Company.CompanyId.Value}:IMPORT:{request.TransactionId:N}:{index:000000}");
+            lock (sync) foreach (var value in row.Values) edits[(context.Company.CompanyId, rowKey, value.Key)] = value.Value;
+            return new ImportRowResult(true, rowKey);
+        }).ToImmutableArray();
+        return Task.FromResult(new ImportBatchResult(results));
+    }
+
+    public async IAsyncEnumerable<GridRow> ExportRowsAsync(ExportProviderRequest request,
+        [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        var keys = request.SelectedRowKeys.ToHashSet();
+        for (var index = 1; index <= LogicalRowCount; index++)
+        {
+            cancellationToken.ThrowIfCancellationRequested(); var row = BuildRow(request.Context.Company, index);
+            if (request.Scope == ExportScope.SelectedRows && !keys.Contains(row.RowKey)) continue;
+            if (!Matches(index, request.Context.Company, request.Filters)) continue;
+            yield return row;
+            if ((index & 1023) == 0) await Task.Yield();
+        }
+    }
+
+    public Task<long?> GetExportCountAsync(ExportProviderRequest request, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (request.Scope == ExportScope.SelectedRows) return Task.FromResult<long?>(request.SelectedRowKeys.Length);
+        if (request.Filters.Length == 0) return Task.FromResult<long?>(LogicalRowCount);
+        return Task.FromResult<long?>(null);
     }
 
     private GridRow BuildRow(CompanyDescriptor company, int index)

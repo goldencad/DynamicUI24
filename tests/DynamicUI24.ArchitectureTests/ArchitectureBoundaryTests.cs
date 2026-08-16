@@ -425,6 +425,7 @@ public sealed class ArchitectureBoundaryTests
         var paths = roots
             .SelectMany(root => Directory.EnumerateFiles(
                 Path.Combine(RepositoryRoot, root), "*.csproj", SearchOption.AllDirectories))
+            .Where(path => !IsGeneratedOrRepositoryMetadata(path))
             .ToArray();
 
         var projects = paths.ToDictionary(

@@ -38,10 +38,28 @@ internal static class DemoActionBars
                 Action("refresh", "REFRESH", "ActionBar.Refresh", StandardIconKeys.Refresh, ActionType.Refresh, 80),
                 Action("filter", "FILTER", "ActionBar.Filter", StandardIconKeys.Filter, ActionType.Filter, 90),
                 Action("search", "SEARCH", "ActionBar.Search", StandardIconKeys.Search, ActionType.Search, 100),
+                Action("import", "IMPORT", "ActionBar.Import", StandardIconKeys.Import, ActionType.Import, 105,
+                    requirement: new(new PermissionCode("DATA.IMPORT"), UnauthorizedBehavior: UnauthorizedBehavior.Disable),
+                    buttonVariant: ActionButtonVariant.DropdownButton,
+                    menuItems:
+                    [
+                        Menu("import-profile", "IMPORT_PROFILE", "Import.Profile", "DEMO.IMPORT.PROFILE", 0),
+                        Menu("import-xlsx", "IMPORT_XLSX", "Import.Xlsx", "DEMO.IMPORT.XLSX", 10),
+                        Menu("import-csv", "IMPORT_CSV", "Import.Csv", "DEMO.IMPORT.CSV", 20),
+                        Menu("import-custom", "IMPORT_CUSTOM", "Import.Custom", "DEMO.IMPORT.CUSTOM", 30),
+                    ]),
                 Action("custom", "CUSTOM", "ActionBar.Custom", StandardIconKeys.Info, ActionType.CustomRegistered, 110,
                     registeredCommandCode: "DEMO.ACTION.CUSTOM")),
             Bottom("data-bottom",
-                Action("export", "EXPORT", "ActionBar.Export", StandardIconKeys.Export, ActionType.Export))),
+                Action("export", "EXPORT", "ActionBar.Export", StandardIconKeys.Export, ActionType.Export,
+                    requirement: new(new PermissionCode("DATA.EXPORT"), UnauthorizedBehavior: UnauthorizedBehavior.Disable),
+                    buttonVariant: ActionButtonVariant.DropdownButton,
+                    menuItems:
+                    [
+                        Menu("export-view", "EXPORT_CURRENT_VIEW", "Export.CurrentView", "DEMO.EXPORT.VIEW", 0),
+                        Menu("export-selected", "EXPORT_SELECTED", "Export.Selected", "DEMO.EXPORT.SELECTED", 10),
+                        Menu("export-filtered", "EXPORT_ALL_FILTERED", "Export.AllFiltered", "DEMO.EXPORT.FILTERED", 20),
+                    ]))),
         Pair("signing-demo",
             Top("signing-top",
                 Action("preview", "PREVIEW", "ActionBar.Preview", StandardIconKeys.Preview, ActionType.Preview),
@@ -75,7 +93,11 @@ internal static class DemoActionBars
     private static ActionDefinition Action(string id, string code, string label, IconKey icon, ActionType type,
         int order = 0, PresentationRequirement? requirement = null, bool requiresSelection = false,
         int? minSelection = null, int? maxSelection = null, string? targetWorkspaceId = null,
-        string? registeredCommandCode = null) => new(id, code, new(label), icon, type, order, requirement,
+        string? registeredCommandCode = null, ActionButtonVariant buttonVariant = ActionButtonVariant.Button,
+        IEnumerable<ActionMenuItemDefinition>? menuItems = null) => new(id, code, new(label), icon, type, order, requirement,
             requiresSelection, minSelection, maxSelection, targetWorkspaceId: targetWorkspaceId,
-            registeredCommandCode: registeredCommandCode);
+            registeredCommandCode: registeredCommandCode, buttonVariant: buttonVariant, menuItems: menuItems);
+
+    private static ActionMenuItemDefinition Menu(string id, string code, string label, string command, int order) =>
+        new(id, code, new(label), registeredCommandCode: command, displayOrder: order);
 }

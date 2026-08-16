@@ -8,6 +8,7 @@
     <PackageReference Include="Avalonia.Desktop" />
     <PackageReference Include="Avalonia.Themes.Fluent" />
     <ProjectReference Include="../../src/DynamicUI24.Avalonia/DynamicUI24.Avalonia.csproj" />
+    <ProjectReference Include="../../src/Extensions/DynamicUI24.Excel/DynamicUI24.Excel.csproj" />
     <ProjectReference Include="../../src/Templates/DynamicUI24.Template.Setup/DynamicUI24.Template.Setup.csproj" />
     <ProjectReference Include="../../src/Templates/DynamicUI24.Template.DataEntry/DynamicUI24.Template.DataEntry.csproj" />
     <ProjectReference Include="../../src/Templates/DynamicUI24.Template.Report/DynamicUI24.Template.Report.csproj" />
