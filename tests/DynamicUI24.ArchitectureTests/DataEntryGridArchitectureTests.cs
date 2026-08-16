@@ -88,6 +88,18 @@ public sealed class DataEntryGridArchitectureTests
     }
 
     [Fact]
+    public void FormulaMarkerIsPresentationOnlyAndSemanticModeRemainsAuthoritative()
+    {
+        var definitions = File.ReadAllText(Path("src/DynamicUI24.Core/DataEntry/GridDefinitions.cs"));
+        var host = File.ReadAllText(Path("src/DynamicUI24.Avalonia/Presentation/DataEntryGridHost.cs"));
+        Assert.Contains("Definition.Mode == ColumnMode.Formula", definitions, StringComparison.Ordinal);
+        Assert.Contains("IsFormulaDerived", host, StringComparison.Ordinal);
+        Assert.Contains("Text = \"fx\"", host, StringComparison.Ordinal);
+        Assert.DoesNotContain("FormulaExpression", host, StringComparison.Ordinal);
+        Assert.DoesNotContain("EvaluateFormula", host, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void RangeClipboardAndTransactionsStaySemanticPlatformFreeAndBounded()
     {
         var selection = File.ReadAllText(Path("src/DynamicUI24.Core/DataEntry/GridSelection.cs"));
@@ -108,6 +120,28 @@ public sealed class DataEntryGridArchitectureTests
     }
 
     [Fact]
+    public void PercentageSizingAndPointerSelectionRemainSemanticBoundedAndPlatformSeparated()
+    {
+        var heights = File.ReadAllText(Path("src/DynamicUI24.Core/DataEntry/GridRowHeights.cs"));
+        var editing = File.ReadAllText(Path("src/DynamicUI24.Core/DataEntry/GridRuntimeEditing.cs"));
+        var host = File.ReadAllText(Path("src/DynamicUI24.Avalonia/Presentation/DataEntryGridHost.cs"));
+        Assert.Contains("Dictionary<RowKey", heights, StringComparison.Ordinal);
+        Assert.Contains("MaximumOverrides", heights, StringComparison.Ordinal);
+        Assert.DoesNotContain("Avalonia", heights, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("SelectRange(GridRangeEndpoint anchor", editing, StringComparison.Ordinal);
+        Assert.DoesNotContain("Pointer", editing, StringComparison.Ordinal);
+        Assert.DoesNotContain("StandardCursorType.SizeNorthSouth", host, StringComparison.Ordinal);
+        Assert.DoesNotContain("StandardCursorType.SizeWestEast", host, StringComparison.Ordinal);
+        Assert.DoesNotContain("GridSplitter", host, StringComparison.Ordinal);
+        Assert.DoesNotContain("ResizeDirection", host, StringComparison.Ordinal);
+        Assert.DoesNotContain("ColumnDefinitions[index + columnOffset].ActualWidth", host, StringComparison.Ordinal);
+        Assert.DoesNotContain("Post(() => Focus())", host, StringComparison.Ordinal);
+        Assert.Contains("expandedCell.Opened", host, StringComparison.Ordinal);
+        Assert.Contains("TextInput += HandleTextInput", host, StringComparison.Ordinal);
+        Assert.Contains("Key.Delete or Key.Back or Key.Clear", host, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void PlatformClipboardAndShortcutMappingRemainInPresentationLayer()
     {
         var bridge = File.ReadAllText(Path("src/DynamicUI24.Avalonia/Presentation/AvaloniaGridClipboardService.cs"));
@@ -116,6 +150,142 @@ public sealed class DataEntryGridArchitectureTests
         Assert.Contains("KeyModifiers.Meta", host, StringComparison.Ordinal);
         Assert.Contains("KeyModifiers.Control", host, StringComparison.Ordinal);
         Assert.Contains("DuiSelectionBrush", host, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CellCommitUsesSemanticTargetedPresenterInvalidationWithoutGridRebuild()
+    {
+        var runtime = File.ReadAllText(Path("src/DynamicUI24.Core/DataEntry/GridRuntime.cs"));
+        var host = File.ReadAllText(Path("src/DynamicUI24.Avalonia/Presentation/DataEntryGridHost.cs"));
+        Assert.Contains("OnChanged(\"EDIT_COMMIT\", new(buffer.RowKey, buffer.VariableCode))", runtime, StringComparison.Ordinal);
+        Assert.Contains("RefreshMaterializedCell(committedCell)", host, StringComparison.Ordinal);
+        Assert.Contains("runtime.GetValue(address.RowKey, address.VariableCode", host, StringComparison.Ordinal);
+        Assert.DoesNotContain("args.Reason == \"EDIT_COMMIT\") Rebuild", host, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ExpandedCellEditorIsLightweightAndHasNoFormActionButtons()
+    {
+        var host = File.ReadAllText(Path("src/DynamicUI24.Avalonia/Presentation/DataEntryGridHost.cs"));
+        Assert.Contains("expandedCell.Content = expandedValue", host, StringComparison.Ordinal);
+        Assert.Contains("expandedEditing && args.Key is Key.Enter or Key.Tab", host, StringComparison.Ordinal);
+        Assert.Contains("args.Key == Key.Escape", host, StringComparison.Ordinal);
+        Assert.DoesNotContain("expandedSave", host, StringComparison.Ordinal);
+        Assert.DoesNotContain("expandedCancel", host, StringComparison.Ordinal);
+        Assert.DoesNotContain("Content = \"Done\"", host, StringComparison.Ordinal);
+        Assert.DoesNotContain("Content = \"Apply\"", host, StringComparison.Ordinal);
+        Assert.DoesNotContain("expandedCell.Content = new Border", host, StringComparison.Ordinal);
+        Assert.Contains("pointerSelecting = false;", host, StringComparison.Ordinal);
+        Assert.Contains("AddHandler(KeyDownEvent, HandleKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true)",
+            host, StringComparison.Ordinal);
+        Assert.Contains("expandedValue.IsKeyboardFocusWithin", host, StringComparison.Ordinal);
+        Assert.Contains("InputMethod.SetIsInputMethodEnabled(expandedValue, true)", host, StringComparison.Ordinal);
+        Assert.DoesNotContain("expandedValue.TextChanged", host, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void NativeTextInputRemainsPresentationOwnedAndLanguageNeutral()
+    {
+        var host = File.ReadAllText(Path("src/DynamicUI24.Avalonia/Presentation/DataEntryGridHost.cs"));
+        var core = ReadDirectory("src/DynamicUI24.Core/DataEntry");
+        Assert.Contains("InputMethod.SetIsInputMethodEnabled", host, StringComparison.Ordinal);
+        Assert.Contains("expandedValue.IsKeyboardFocusWithin", host, StringComparison.Ordinal);
+        Assert.DoesNotContain("Vietnamese", core, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Pinyin", core, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Transliterate", core, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Encoding.Default", core, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PercentageSizingUsesExistingSemanticPreferenceAndSharedGeometryPath()
+    {
+        var preference = File.ReadAllText(Path("src/DynamicUI24.Core/DataEntry/GridPersonalization.cs"));
+        var runtime = File.ReadAllText(Path("src/DynamicUI24.Core/DataEntry/GridRuntimePersonalization.cs"));
+        var host = File.ReadAllText(Path("src/DynamicUI24.Avalonia/Presentation/DataEntryGridHost.cs"));
+        Assert.Contains("WidthScalePercent", preference, StringComparison.Ordinal);
+        Assert.Contains("RowHeightScalePercent", preference, StringComparison.Ordinal);
+        Assert.Contains("SetColumnWidthPercentage(VariableCode", runtime, StringComparison.Ordinal);
+        Assert.Contains("var grid = CreateColumns(columns, scale);", host, StringComparison.Ordinal);
+        Assert.Contains("ResolveRowHeight(row.RowKey", host, StringComparison.Ordinal);
+        Assert.DoesNotContain("PayCalc24", preference, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Avalonia", preference, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void RowLifecycleIsProviderOwnedRowKeySemanticAndDoesNotMutateColumnSchema()
+    {
+        var contract = File.ReadAllText(Path("src/DynamicUI24.Core/DataEntry/GridRowLifecycle.cs"));
+        var runtime = File.ReadAllText(Path("src/DynamicUI24.Core/DataEntry/GridRuntimeRowLifecycle.cs"));
+        var host = File.ReadAllText(Path("src/DynamicUI24.Avalonia/Presentation/DataEntryGridHost.cs"));
+        Assert.Contains("IGridRowLifecycleProvider", contract, StringComparison.Ordinal);
+        Assert.Contains("RowKey AnchorRowKey", contract, StringComparison.Ordinal);
+        Assert.Contains("InsertedRowKey", contract, StringComparison.Ordinal);
+        Assert.Contains("IGridRowCalculationInvalidation", contract, StringComparison.Ordinal);
+        Assert.Contains("Insert Row Above", host, StringComparison.Ordinal);
+        Assert.Contains("Delete Selected Rows", host, StringComparison.Ordinal);
+        Assert.Contains("ROWS_DELETED", host, StringComparison.Ordinal);
+        Assert.Contains("Cmd/Ctrl+Shift+↑", host, StringComparison.Ordinal);
+        Assert.Contains("Cmd/Ctrl+Shift+↓", host, StringComparison.Ordinal);
+        Assert.Contains("Cmd/Ctrl+Delete", host, StringComparison.Ordinal);
+        Assert.Contains("MessageKind.Confirmation", host, StringComparison.Ordinal);
+        Assert.Contains("MessageResult.Confirmed", host, StringComparison.Ordinal);
+        Assert.Contains("PrepareCellContext(address, logicalRowPosition)", host, StringComparison.Ordinal);
+        Assert.Contains("BuildColumnWidthMenu(address.VariableCode)", host, StringComparison.Ordinal);
+        Assert.Contains("BuildRowHeightMenu()", host, StringComparison.Ordinal);
+        Assert.Contains("OpenExpandedCell(anchor, address, column)", host, StringComparison.Ordinal);
+        Assert.Contains("CutSelectionAsync()", host, StringComparison.Ordinal);
+        Assert.Contains("PasteSelectionAsync()", host, StringComparison.Ordinal);
+        Assert.DoesNotContain("InsertColumn", contract + runtime + host, StringComparison.Ordinal);
+        Assert.DoesNotContain("DeleteColumn", contract + runtime + host, StringComparison.Ordinal);
+        Assert.DoesNotContain("Avalonia", contract + runtime, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("VisualRowIndex", contract + runtime, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void GridFindIsProviderOwnedSemanticBoundedAndSeparateFromGlobalSearch()
+    {
+        var contract = File.ReadAllText(Path("src/DynamicUI24.Core/DataEntry/GridFind.cs"));
+        var runtime = File.ReadAllText(Path("src/DynamicUI24.Core/DataEntry/GridRuntimeFind.cs"));
+        var host = File.ReadAllText(Path("src/DynamicUI24.Avalonia/Presentation/DataEntryGridHost.cs"));
+        Assert.Contains("IGridFindProvider", contract, StringComparison.Ordinal);
+        Assert.Contains("RowKey? RowKey", contract, StringComparison.Ordinal);
+        Assert.Contains("VariableCode? VariableCode", contract, StringComparison.Ordinal);
+        Assert.Contains("RequestGeneration", contract, StringComparison.Ordinal);
+        Assert.Contains("RequestViewportAsync", runtime, StringComparison.Ordinal);
+        Assert.Contains("GRID_STALE_FIND_RESULT", runtime, StringComparison.Ordinal);
+        Assert.Contains("Find in Column…", host, StringComparison.Ordinal);
+        Assert.Contains("GridFindScope { CurrentRow, CurrentColumn, AllVisibleColumns }", contract, StringComparison.Ordinal);
+        Assert.Contains("Find in Row…", host, StringComparison.Ordinal);
+        Assert.Contains("Edit / View", host, StringComparison.Ordinal);
+        Assert.Contains("CopyRowAsync(rowKey, clipboard)", host, StringComparison.Ordinal);
+        Assert.Contains("ClearRowEditableValuesAsync(rowKey)", host, StringComparison.Ordinal);
+        Assert.Contains("RememberFindScope", runtime + File.ReadAllText(Path("src/DynamicUI24.Core/DataEntry/GridRuntimePersonalization.cs")), StringComparison.Ordinal);
+        Assert.Contains("FindScope = scope", File.ReadAllText(Path("src/DynamicUI24.Core/DataEntry/GridRuntimePersonalization.cs")), StringComparison.Ordinal);
+        Assert.Contains("Content = \"⌄\"", host, StringComparison.Ordinal);
+        Assert.Contains("args.Key == Key.F", host, StringComparison.Ordinal);
+        Assert.DoesNotContain("DynamicUI24.Core.Search", contract + runtime, StringComparison.Ordinal);
+        Assert.DoesNotContain("Avalonia", contract + runtime, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("TextBlock", contract + runtime, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void PermanentRowHeaderIsFrozenPresentationOnlyAndMaterializedByRowKey()
+    {
+        var host = File.ReadAllText(Path("src/DynamicUI24.Avalonia/Presentation/DataEntryGridHost.cs"));
+        Assert.Contains("rowHeaderScroller", host, StringComparison.Ordinal);
+        Assert.Contains("Grid.SetColumn(rowHeaderScroller, 0)", host, StringComparison.Ordinal);
+        Assert.Contains("new Vector(0, scroller.Offset.Y)", host, StringComparison.Ordinal);
+        Assert.Contains("BuildRowHeader(runtime.Rows[index].RowKey", host, StringComparison.Ordinal);
+        Assert.Contains("runtime.ViewportStartIndex + index + 1", host, StringComparison.Ordinal);
+        Assert.Contains("BuildRowMenu(rowKey)", host, StringComparison.Ordinal);
+        Assert.Contains("BuildRowHeightMenu()", host, StringComparison.Ordinal);
+        Assert.Contains("BuildColumnWidthMenu(code)", host, StringComparison.Ordinal);
+        Assert.Contains("Insert Row Above", host, StringComparison.Ordinal);
+        Assert.Contains("Find in Row…", host, StringComparison.Ordinal);
+        Assert.DoesNotContain("Text = \"№\"", host, StringComparison.Ordinal);
+        Assert.Contains("Grid corner header", host, StringComparison.Ordinal);
+        Assert.DoesNotContain("if (runtime.Definition.ShowRowNumbers)", host, StringComparison.Ordinal);
+        Assert.DoesNotContain("new VariableCode(\"ROW", host, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string ReadDirectory(string relative) => string.Join('\n',

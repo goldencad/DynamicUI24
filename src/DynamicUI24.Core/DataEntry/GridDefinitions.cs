@@ -62,6 +62,7 @@ public sealed record ResolvedGridColumn(ColumnDefinition Definition, Authorizati
     decimal Width, decimal MinWidth, decimal MaxWidth)
 {
     public bool IsVisible => State != AuthorizationPresentationState.Hidden && Definition.IsVisible;
+    public bool IsFormulaDerived => Definition.Mode == ColumnMode.Formula;
     public bool CanEdit => State == AuthorizationPresentationState.VisibleEnabled &&
         Definition.Mode == ColumnMode.Input && Definition.EditorKind is not ColumnEditorKind.ReadOnly and not ColumnEditorKind.Formula;
 }

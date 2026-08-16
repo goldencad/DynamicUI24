@@ -22,6 +22,7 @@ using DynamicUI24.Core.ImportExport;
 using DynamicUI24.Core.Privacy;
 using DynamicUI24.Core.Search;
 using DynamicUI24.Core.Context;
+using DynamicUI24.Core.Sheets;
 using DynamicUI24.Shared.Presentation;
 
 namespace DynamicUI24.Demo;
@@ -39,6 +40,7 @@ public sealed partial class MainWindow : Window
     private readonly SetupWorkspaceHost setupWorkspaceHost;
     private readonly DemoDataEntryProvider dataEntryProvider;
     private readonly DataEntryGridHost dataEntryGridHost;
+    private readonly DemoMultiSheetWorkspace multiSheetWorkspace;
     private readonly IPrivacyStateService privacyState;
     private readonly ImportExportWorkspaceHost importExportHost;
     private readonly TabControl dataEntryTabs;
@@ -132,13 +134,19 @@ public sealed partial class MainWindow : Window
                 privacyResolver: privacyResolver, privacyState: privacyState, sensitiveValuePresenter: sensitiveValuePresenter),
             localization, appearanceService, privacyResolver: privacyResolver, privacyState: privacyState,
             sensitivePresenter: sensitiveValuePresenter);
+        multiSheetWorkspace = new(dataEntryGridHost, dataEntryProvider, localization, appearanceService, privacyState,
+            privacyResolver, sensitiveValuePresenter, companyContext.CurrentCompany, () =>
+            {
+                contextCoordinator.Invalidate();
+                _ = RefreshContextAsync();
+            });
         importExportHost = new ImportExportWorkspaceHost(localization);
         importExportHost.ShowProfiles(DemoImportExport.ImportProfiles, DemoImportExport.ExportProfiles);
         dataEntryTabs = new TabControl
         {
             ItemsSource = new object[]
             {
-                new TabItem { Header = "Data", Content = dataEntryGridHost },
+                new TabItem { Header = "Multi-Sheet Data", Content = multiSheetWorkspace.View },
                 new TabItem { Header = "Import / Export", Content = importExportHost },
                 new TabItem { Header = "Privacy", Content = new DemoPrivacyPanel(privacyState) },
             },
@@ -201,7 +209,23 @@ public sealed partial class MainWindow : Window
             Task.FromResult(RibbonCommandResult.Success("Hello from a registered UI command.")));
         commandRegistry.Register("DEMO.SELECTION", (_, _) =>
             Task.FromResult(RibbonCommandResult.Success("Selection command dispatched.")));
-        var searchProviders = DemoSearch.CreateProviders(workspaces, quickAccess, out _);
+        foreach (var code in new[] { "SHEET_A", "SHEET_B", "SHEET_C", "SHEET_D" })
+        {
+            var captured = new SheetCode(code);
+            commandRegistry.Register($"DEMO.SHEET.{code}", async (_, token) =>
+            {
+                await workspaceNavigation.NavigateAsync("data-entry-demo", token);
+                return multiSheetWorkspace.Activate(captured)
+                    ? RibbonCommandResult.Success($"Activated {captured.Value}")
+                    : RibbonCommandResult.Unavailable("SHEET_ACTIVATION_REJECTED");
+            });
+        }
+        var searchProviders = DemoSearch.CreateProviders(workspaces, quickAccess, out _).ToList();
+        searchProviders.Add(new DemoSearchProvider("SHEETS", new[] { "SHEET_A", "SHEET_B", "SHEET_C", "SHEET_D" }
+            .Select((code, index) => new SearchResult($"sheet:{code}", SearchResultKind.Command, "SHEETS",
+                $"Go to Sheet {code[^1]}", $"Workspace + SheetCode: data-entry-demo/{code}", providerRank: index,
+                workspaceId: "data-entry-demo", registeredCommandCode: $"DEMO.SHEET.{code}",
+                deduplicationKey: $"data-entry-demo:{code}", canFavorite: true, canPin: true, canRecordRecent: true)).ToArray()));
         searchCoordinator = new SearchCoordinator(searchProviders, new(48, 10));
         quickAccess.AddFavorite(new("workspace:dashboard-demo", SearchResultKind.Workspace, "dashboard-demo", "WORKSPACES"));
         quickAccess.Pin(new("workspace:report-demo", SearchResultKind.Workspace, "report-demo", "WORKSPACES"));
@@ -693,11 +717,12 @@ public sealed partial class MainWindow : Window
     {
         var workspace = workspaceHost.CurrentDefinition;
         var selected = workspace?.WorkspaceId == "data-entry-demo"
-            ? dataEntryGridHost.Runtime.SelectedRowKeys.FirstOrDefault() : default;
+            ? multiSheetWorkspace.ActiveRuntime?.SelectedRowKeys.FirstOrDefault() ?? default : default;
         var rowKey = string.IsNullOrWhiteSpace(selected.Value) ? null : selected.Value;
+        var sheetCode = workspace?.WorkspaceId == "data-entry-demo" ? multiSheetWorkspace.ActiveSheetCode : null;
         await contextCoordinator.ResolveAsync("DEMO.CONTEXT", (generation, token) => new(
             companyContext.CurrentCompany.CompanyId, workspace?.WorkspaceId, workspace?.TemplateCode.Value,
-            workspace?.WorkspaceId, new ContextSelection(RowKey: rowKey),
+            workspace?.WorkspaceId, new ContextSelection(EntityKey: sheetCode is null ? null : $"SHEET:{sheetCode.Value.Value}", RowKey: rowKey),
             new HelpContextCode(workspace?.WorkspaceId == "data-entry-demo" ? "DATAENTRY.ROW" : "SHELL.WORKSPACE"),
             localization.CurrentCulture, privacyState.RequestedMode,
             companyScope.Snapshot.AuthorizationContext, generation, token));
@@ -741,8 +766,8 @@ public sealed partial class MainWindow : Window
         ? ActionCommandResult.Success($"{result.AppliedCellCount} cell(s)")
         : ActionCommandResult.Unavailable(result.DiagnosticCode);
 
-    private Task LoadDataEntryAsync(CompanyDescriptor company, EffectiveAuthorizationContext? effectiveAuthorization) =>
-        dataEntryGridHost.LoadAsync(new(company, "data-entry-demo"), effectiveAuthorization);
+    private Task LoadDataEntryAsync(CompanyDescriptor company, EffectiveAuthorizationContext? effectiveAuthorization)
+        => multiSheetWorkspace.UpdateContextAsync(company, effectiveAuthorization);
 
     private void NavigateFromRibbon(WorkspaceDefinition workspace)
     {
@@ -1203,7 +1228,7 @@ public sealed partial class MainWindow : Window
         var layoutRows = runtime.Rows.Length;
         var code = new VariableCode("ITEM_CODE");
         runtime.SelectCell(new(first.RowKey, code), runtime.ViewportStartIndex);
-        if (!dataEntryGridHost.ResizeColumn(code, 175) || !dataEntryGridHost.ReorderColumn(code, 2) ||
+        if (!runtime.SetColumnWidthPercentage(code, 150) || !dataEntryGridHost.ReorderColumn(code, 2) ||
             runtime.ActiveCell != new GridCellAddress(first.RowKey, code) || runtime.Rows.Length != layoutRows)
             throw new InvalidOperationException("Resize/reorder changed semantic active cell or rematerialized rows.");
         if (!dataEntryGridHost.SetColumnPinned(code, true) || runtime.PresentedColumns[0].VariableCode != code ||
@@ -1217,7 +1242,7 @@ public sealed partial class MainWindow : Window
         await runtime.SaveViewAsync(preferenceStore, preferenceScope);
         dataEntryGridHost.ResetLayout();
         await runtime.RestoreViewAsync(preferenceStore, preferenceScope);
-        if (runtime.PresentedColumns.Single(x => x.VariableCode == code).Width != 175 || runtime.Rows.Length != layoutRows)
+        if (runtime.GetColumnWidthPercentage(code) != 150 || runtime.Rows.Length != layoutRows)
             throw new InvalidOperationException("Preference restore/reset changed rows or lost width.");
         dataEntryGridHost.ResetLayout();
         runtime.SelectAllCells();

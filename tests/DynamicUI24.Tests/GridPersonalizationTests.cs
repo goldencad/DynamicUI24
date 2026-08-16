@@ -8,6 +8,24 @@ namespace DynamicUI24.Tests;
 public sealed class GridPersonalizationTests
 {
     [Fact]
+    public void PercentageWidthUsesMetadataBaseClampsAndFollowsVariableCodeAcrossReorder()
+    {
+        var resolved = Resolve([Column("A", 0, 160, 60, 500), Column("B", 1, 100, 50, 400)]);
+        var at150 = GridViewPreferenceResolver.Resolve(resolved, Preference("GRID",
+            [new(new("A"), 1, WidthScalePercent: 150), new(new("B"), 0)]));
+        Assert.Equal(240, at150.Columns.Single(x => x.VariableCode == new VariableCode("A")).Width);
+        var at125 = GridViewPreferenceResolver.Resolve(resolved, at150.RepairedPreference with { Columns =
+            at150.RepairedPreference.Columns.Select(x => x.VariableCode == new VariableCode("A")
+                ? x with { WidthScalePercent = 125 } : x).ToImmutableArray() });
+        Assert.Equal(200, at125.Columns.Single(x => x.VariableCode == new VariableCode("A")).Width);
+        Assert.Equal(125, at125.Columns.Single(x => x.VariableCode == new VariableCode("A")).WidthScalePercent);
+        var clamped = GridViewPreferenceResolver.Resolve(resolved, Preference("GRID",
+            [new(new("A"), 0, WidthScalePercent: 999)]));
+        Assert.Equal(300, clamped.Columns.Single(x => x.VariableCode == new VariableCode("A")).WidthScalePercent);
+        Assert.Equal(480, clamped.Columns.Single(x => x.VariableCode == new VariableCode("A")).Width);
+    }
+
+    [Fact]
     public void PreferenceOverlayUsesSemanticIdentityClampsRepairsAndFailsClosed()
     {
         var resolved = Resolve([Column("A", 0, 100, 60, 200), Column("B", 1, 120, 80, 180), Column("C", 2, 140, 90, 240)]);
@@ -74,7 +92,8 @@ public sealed class GridPersonalizationTests
     {
         Assert.False(new GridFilterDescriptor(new("N"), GridFilterOperatorKind.Contains, GridFilterDataType.Number, "secret").IsValid);
         Assert.False(new GridFilterDescriptor(new("D"), GridFilterOperatorKind.Between, GridFilterDataType.Date, DateOnly.FromDateTime(DateTime.Today)).IsValid);
-        Assert.DoesNotContain(typeof(GridViewPreference).GetProperties(), x => x.Name.Contains("Row", StringComparison.OrdinalIgnoreCase) ||
+        Assert.Contains(typeof(GridViewPreference).GetProperties(), x => x.Name == nameof(GridViewPreference.RowHeightScalePercent));
+        Assert.DoesNotContain(typeof(GridViewPreference).GetProperties(), x =>
             x.Name.Contains("Cell", StringComparison.OrdinalIgnoreCase) || x.Name.Contains("Value", StringComparison.OrdinalIgnoreCase));
     }
 

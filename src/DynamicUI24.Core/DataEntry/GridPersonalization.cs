@@ -18,12 +18,12 @@ public sealed record GridPreferenceScope(GridPreferenceScopeKind Kind, string Us
 
 /// <summary>Presentation-only state for a semantic column. It never contains row or cell values.</summary>
 public sealed record GridColumnPreference(VariableCode VariableCode, int Order, decimal? Width = null,
-    bool? IsVisible = null, GridColumnPin Pin = GridColumnPin.None);
+    bool? IsVisible = null, GridColumnPin Pin = GridColumnPin.None, decimal? WidthScalePercent = null);
 
 public sealed record GridViewPreference(string GridCode, int SchemaVersion,
     ImmutableArray<GridColumnPreference> Columns, ImmutableArray<GridSortDefinition> Sorts,
     ImmutableArray<GridFilterDescriptor> Filters, GridDensity Density = GridDensity.Comfortable,
-    string? ViewName = null)
+    string? ViewName = null, decimal RowHeightScalePercent = 100m, GridFindScope? FindScope = null)
 {
     public const int CurrentSchemaVersion = 1;
     public static GridViewPreference Empty(string gridCode) =>
@@ -59,7 +59,7 @@ public sealed class InMemoryGridViewPreferenceStore : IGridViewPreferenceStore
 }
 
 public sealed record GridPresentedColumn(ResolvedGridColumn Column, int Order, decimal Width,
-    bool IsVisible, GridColumnPin Pin)
+    bool IsVisible, GridColumnPin Pin, decimal WidthScalePercent = 100m)
 {
     public VariableCode VariableCode => Column.Definition.VariableCode;
 }
@@ -91,12 +91,16 @@ public static class GridViewPreferenceResolver
             preferred.TryGetValue(column.Definition.VariableCode, out var item);
             var order = item?.Order >= 0 ? item.Order : column.Definition.DisplayOrder;
             if (item?.Order < 0) diagnostics.Add(new("GRID_PREFERENCE_ORDER_INVALID", column.Definition.ColumnId));
-            var width = item?.Width is > 0 ? Math.Clamp(item.Width.Value, column.MinWidth, column.MaxWidth) : column.Width;
+            var widthScale = Math.Clamp(item?.WidthScalePercent ??
+                (item?.Width is > 0 ? item.Width.Value / column.Width * 100m : 100m), 50m, 300m);
+            var width = item?.WidthScalePercent is not null
+                ? Math.Clamp(column.Width * widthScale / 100m, column.MinWidth, column.MaxWidth)
+                : item?.Width is > 0 ? Math.Clamp(item.Width.Value, column.MinWidth, column.MaxWidth) : column.Width;
             if (item?.Width is <= 0) diagnostics.Add(new("GRID_PREFERENCE_WIDTH_INVALID", column.Definition.ColumnId));
             // Authorization/metadata visibility is authoritative and fails closed.
             var visible = column.IsVisible && (item?.IsVisible ?? true);
             var pin = visible ? item?.Pin ?? GridColumnPin.None : GridColumnPin.None;
-            result.Add(new(column, order, width, visible, pin));
+            result.Add(new(column, order, width, visible, pin, widthScale));
         }
         var ordered = result.OrderBy(x => x.Order).ThenBy(x => x.Column.Definition.DisplayOrder)
             .ThenBy(x => x.VariableCode.Value, StringComparer.Ordinal).ToList();
@@ -113,10 +117,12 @@ public static class GridViewPreferenceResolver
             else pinned += item.Width;
         }
         var repairedColumns = ordered.Select((x, index) => new GridColumnPreference(x.VariableCode, index,
-            x.Width, x.IsVisible, x.Pin)).ToImmutableArray();
+            x.Width, x.IsVisible, x.Pin, x.WidthScalePercent)).ToImmutableArray();
         var repaired = new GridViewPreference(metadata.Definition.GridCode, GridViewPreference.CurrentSchemaVersion,
             repairedColumns, usable ? preference!.Sorts : [], usable ? preference!.Filters : [],
-            usable ? preference!.Density : GridDensity.Comfortable, usable ? preference!.ViewName : null);
+            usable ? preference!.Density : GridDensity.Comfortable, usable ? preference!.ViewName : null,
+            Math.Clamp(usable ? preference!.RowHeightScalePercent : 100m, 75m, 300m),
+            usable ? preference!.FindScope : null);
         return new(ordered.Select((x, index) => x with { Order = index }).ToImmutableArray(), repaired, diagnostics.ToImmutable());
     }
 }

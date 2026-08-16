@@ -1,0 +1,7 @@
+# DataEntry Grid Find
+
+Grid Find is a local DataEntry capability and is separate from global S1 Search and from filtering. Filtering changes the logical result set; Find locates a semantic `RowKey + VariableCode` target within the current sorted/filtered result set.
+
+Large-data providers opt into `IGridFindProvider`. Requests carry the query, Current Row, Current Column, or All Visible Columns scope, optional semantic `RowKey`/`VariableCode` context, eligible `VariableCode` values, direction, current logical position, current sort/filter state, and request generation. Current Row resolves only its target row and does not scan the logical dataset. Results return semantic identity plus logical position. The runtime rejects stale context/generation results, requests only a bounded target viewport, and then activates the semantic cell.
+
+The Avalonia adapter exposes Find from the column dropdown, Find in Row from the materialized-row dropdown, and Cmd/Ctrl+F for Grid Find. The mutually exclusive scope menu visibly checks the active scope. The semantic scope enum is remembered in the existing `GridViewPreference`; query text and matched values are never persisted. Invalid remembered row/column context falls back to All Visible Columns. Enter finds next, Shift+Enter finds previous, and Escape closes the lightweight surface. Sensitive columns are excluded unless a future explicit privacy capability permits searching them; no raw match preview is returned or announced.

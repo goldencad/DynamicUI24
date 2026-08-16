@@ -14,9 +14,10 @@ public sealed record GridEditBuffer(RowKey RowKey, VariableCode VariableCode, ob
     public bool IsDirty => !Equals(SourceValue, CandidateValue);
 }
 
-public sealed class GridRuntimeChangedEventArgs(string reason) : EventArgs
+public sealed class GridRuntimeChangedEventArgs(string reason, GridCellAddress? cell = null) : EventArgs
 {
     public string Reason { get; } = reason;
+    public GridCellAddress? Cell { get; } = cell;
 }
 
 /// <summary>UI-platform-free state machine for loading, selection, sorting, filtering and one-cell editing.</summary>
@@ -28,20 +29,23 @@ public sealed partial class DataEntryGridRuntime
     private CancellationTokenSource? activeRequest;
     private long generation;
     private GridProviderContext? context;
+    private EffectiveAuthorizationContext? authorization;
     private readonly GridEditHistory editHistory;
     private readonly IPrivacyPolicyResolver privacyResolver;
     private readonly IPrivacyStateService privacyState;
     private readonly ISensitiveValuePresenter sensitiveValuePresenter;
+    private readonly Dictionary<(RowKey RowKey, VariableCode VariableCode), GridCellChange> pendingChanges = [];
 
     public DataEntryGridRuntime(GridDefinition definition, IDataEntryGridProvider provider,
         GridViewportOptions? viewportOptions = null, GridPasteOptions? pasteOptions = null,
         IPrivacyPolicyResolver? privacyResolver = null, IPrivacyStateService? privacyState = null,
-        ISensitiveValuePresenter? sensitiveValuePresenter = null)
+        ISensitiveValuePresenter? sensitiveValuePresenter = null, GridRowHeightOptions? rowHeightOptions = null)
     {
         Definition = definition ?? throw new ArgumentNullException(nameof(definition));
         this.provider = provider ?? throw new ArgumentNullException(nameof(provider));
         viewportProvider = provider as IVirtualizedGridDataProvider;
         ViewportOptions = viewportOptions ?? new();
+        RowHeightOptions = rowHeightOptions ?? new();
         windowCache = new(ViewportOptions.MaximumCachedWindows);
         PasteOptions = pasteOptions ?? new();
         editHistory = new(PasteOptions.HistoryDepth);
@@ -84,7 +88,7 @@ public sealed partial class DataEntryGridRuntime
     public GridPasteResult? LastPasteResult { get; private set; }
     public int ErrorCount => Rows.Sum(x => x.ErrorCount) + (EditBuffer?.Diagnostic is null ? 0 : 1);
     public int WarningCount => Rows.Sum(x => x.WarningCount);
-    public int PendingChangeCount => EditBuffer?.IsDirty == true ? 1 : 0;
+    public int PendingChangeCount => pendingChanges.Count + (EditBuffer?.IsDirty == true ? 1 : 0);
     public event EventHandler<GridRuntimeChangedEventArgs>? Changed;
 
     public ActionBarStatus Status
@@ -105,10 +109,11 @@ public sealed partial class DataEntryGridRuntime
         var contextChanged = context is null || context.Company.CompanyId != newContext.Company.CompanyId ||
             !context.WorkspaceId.Equals(newContext.WorkspaceId, StringComparison.OrdinalIgnoreCase);
         context = newContext;
+        this.authorization = authorization;
         if (contextChanged)
         {
             SelectedRowKeys = []; CellSelection = GridSelectionState.Empty; EditBuffer = null; Rows = []; TotalRows = 0; VisibleRows = 0;
-            LastPasteResult = null; editHistory.Clear();
+            LastPasteResult = null; editHistory.Clear(); pendingChanges.Clear();
             ViewportStartIndex = 0; RequestedViewportStartIndex = 0; windowCache.Clear();
         }
         ResolvedDefinition = GridMetadataResolver.Resolve(Definition, authorization);
@@ -208,12 +213,14 @@ public sealed partial class DataEntryGridRuntime
         Interlocked.Increment(ref generation);
         activeRequest?.Cancel(); activeRequest?.Dispose(); activeRequest = null;
         windowCache.Clear(); Rows = []; TotalRows = 0; VisibleRows = 0; State = GridProviderState.Unavailable;
-        SelectedRowKeys = []; CellSelection = GridSelectionState.Empty; EditBuffer = null; LastPasteResult = null; editHistory.Clear();
+        SelectedRowKeys = []; CellSelection = GridSelectionState.Empty; EditBuffer = null; LastPasteResult = null;
+        editHistory.Clear(); pendingChanges.Clear();
         HasPreviousViewport = false; HasNextViewport = false; OnChanged("DEACTIVATED");
     }
 
     public void UpdateAuthorization(EffectiveAuthorizationContext? authorization)
     {
+        this.authorization = authorization;
         ResolvedDefinition = GridMetadataResolver.Resolve(Definition, authorization);
         if (EditBuffer is not null && !CanEdit(EditBuffer.RowKey, EditBuffer.VariableCode)) EditBuffer = null;
         OnChanged("AUTHORIZATION");
@@ -246,8 +253,7 @@ public sealed partial class DataEntryGridRuntime
     public bool BeginEdit(RowKey rowKey, VariableCode variableCode)
     {
         if (!CanEdit(rowKey, variableCode)) return false;
-        var row = Rows.Single(x => x.RowKey == rowKey);
-        row.TryGetValue(variableCode, out var source);
+        var source = GetValue(rowKey, variableCode, out _);
         EditBuffer = new(rowKey, variableCode, source, source);
         OnChanged("EDIT_BEGIN"); return true;
     }
@@ -267,17 +273,57 @@ public sealed partial class DataEntryGridRuntime
         var diagnostic = SetCandidate(EditBuffer.CandidateValue);
         if (diagnostic is not null) return GridCommitResult.Rejected(diagnostic.Code);
         var buffer = EditBuffer;
-        GridCommitResult result;
-        try { result = await provider.CommitAsync(context, new(buffer.RowKey, buffer.VariableCode, buffer.CandidateValue), cancellationToken).ConfigureAwait(false); }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-        catch { result = GridCommitResult.Rejected("GRID_PROVIDER_COMMIT_FAILED"); }
-        if (!result.IsSuccess) return result;
-        Rows = Rows.Select(x => x.RowKey == buffer.RowKey ? x.WithValue(buffer.VariableCode, result.CommittedValue) : x).ToImmutableArray();
-        windowCache.UpdateCell(buffer.RowKey, buffer.VariableCode, result.CommittedValue);
-        editHistory.Record(GridEditTransaction.Create([
-            new GridCellChange(buffer.RowKey, buffer.VariableCode, buffer.SourceValue, result.CommittedValue)],
-            GridEditSourceAction.SingleCell) with { CommitState = GridEditCommitState.Committed });
-        EditBuffer = null; OnChanged("EDIT_COMMIT"); return result;
+        cancellationToken.ThrowIfCancellationRequested();
+        await Task.CompletedTask.ConfigureAwait(false);
+        var change = new GridCellChange(buffer.RowKey, buffer.VariableCode, buffer.SourceValue, buffer.CandidateValue);
+        StageChanges([change]);
+        editHistory.Record(GridEditTransaction.Create([change], GridEditSourceAction.SingleCell));
+        EditBuffer = null;
+        OnChanged("EDIT_COMMIT", new(buffer.RowKey, buffer.VariableCode));
+        return GridCommitResult.Success(buffer.CandidateValue);
+    }
+
+    public async Task<GridCommitResult> SavePendingChangesAsync(CancellationToken cancellationToken = default)
+    {
+        if (context is null) return GridCommitResult.Rejected("GRID_CONTEXT_UNAVAILABLE");
+        var changes = pendingChanges.Values.ToImmutableArray();
+        if (changes.IsEmpty) return GridCommitResult.Success(null);
+        var persisted = changes;
+        if (provider is IGridBatchEditProvider batch)
+        {
+            var result = await batch.CommitBatchAsync(context, GridEditTransaction.Create(changes,
+                GridEditSourceAction.SingleCell), cancellationToken).ConfigureAwait(false);
+            if (!result.IsSuccess) return GridCommitResult.Rejected(result.DiagnosticCode ?? "GRID_PROVIDER_BATCH_COMMIT_FAILED");
+        }
+        else
+        {
+            var committed = ImmutableArray.CreateBuilder<GridCellChange>(changes.Length);
+            foreach (var change in changes)
+            {
+                var result = await provider.CommitAsync(context, new(change.RowKey, change.VariableCode,
+                    change.CandidateValue), cancellationToken).ConfigureAwait(false);
+                if (!result.IsSuccess) return result;
+                committed.Add(change with { CandidateValue = result.CommittedValue });
+            }
+            persisted = committed.ToImmutable();
+        }
+        ApplyValues(persisted);
+        pendingChanges.Clear(); OnChanged("GRID_SAVE"); return GridCommitResult.Success(null);
+    }
+
+    private void StageChanges(IEnumerable<GridCellChange> changes)
+    {
+        foreach (var change in changes)
+        {
+            var key = (change.RowKey, change.VariableCode);
+            var staged = pendingChanges.TryGetValue(key, out var existing)
+                ? change with { OriginalValue = existing.OriginalValue } : change;
+            if (Equals(staged.OriginalValue, staged.CandidateValue)) pendingChanges.Remove(key);
+            else pendingChanges[key] = staged;
+            Rows = Rows.Select(x => x.RowKey == change.RowKey ? x.WithValue(change.VariableCode,
+                change.CandidateValue) : x).ToImmutableArray();
+            windowCache.UpdateCell(change.RowKey, change.VariableCode, change.CandidateValue);
+        }
     }
 
     public void CancelEdit() { if (EditBuffer is null) return; EditBuffer = null; OnChanged("EDIT_CANCEL"); }
@@ -304,6 +350,7 @@ public sealed partial class DataEntryGridRuntime
     public object? GetValue(RowKey rowKey, VariableCode variableCode, out string? diagnosticCode)
     {
         diagnosticCode = null;
+        if (pendingChanges.TryGetValue((rowKey, variableCode), out var pending)) return pending.CandidateValue;
         var row = Rows.FirstOrDefault(x => x.RowKey == rowKey);
         if (row is null || !row.TryGetValue(variableCode, out var value)) { diagnosticCode = "GRID_VARIABLE_UNAVAILABLE"; return null; }
         return value;
@@ -350,7 +397,7 @@ public sealed partial class DataEntryGridRuntime
     {
         State = GridProviderState.Error; DiagnosticCode = code; OnChanged("VIEWPORT_FAILURE");
     }
-    private void OnChanged(string reason) => Changed?.Invoke(this, new(reason));
+    private void OnChanged(string reason, GridCellAddress? cell = null) => Changed?.Invoke(this, new(reason, cell));
 }
 
 public static class GridValueValidator

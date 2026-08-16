@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using DynamicUI24.Core.Companies;
 using DynamicUI24.Core.DataEntry;
 using DynamicUI24.Core.Setup;
+using DynamicUI24.Core.Privacy;
 using Xunit;
 
 namespace DynamicUI24.Tests;
@@ -45,6 +46,64 @@ public sealed class GridEditingTests
         var copy = await runtime.BuildCopyTextAsync();
         Assert.Null(copy.Diagnostic);
         Assert.Equal("row-1\t1\nrow-2\t2", copy.Result);
+    }
+
+    [Fact]
+    public async Task PointerAdapterReplacesOneCompactSemanticRangeAndRetainsModifierRanges()
+    {
+        var provider = Provider(4); var runtime = Runtime(provider); await runtime.LoadAsync(ContextA, null);
+        var anchor = new GridRangeEndpoint(Address(provider.Rows[0], "TEXT"), 0);
+        Assert.True(runtime.SelectRange(anchor, new(Address(provider.Rows[1], "NUMBER"), 1)));
+        Assert.True(runtime.SelectRange(anchor, new(Address(provider.Rows[2], "NUMBER"), 2)));
+        Assert.Single(runtime.SelectedRanges); Assert.Equal(6, runtime.SelectedCellCount);
+        Assert.Equal("row-1\t1\nrow-2\t2\nrow-3\t3", (await runtime.BuildCopyTextAsync()).Result);
+
+        var retained = runtime.SelectedRanges;
+        var second = new GridRangeEndpoint(Address(provider.Rows[3], "TEXT"), 3);
+        Assert.True(runtime.SelectRange(second, second, retained));
+        Assert.Equal(2, runtime.SelectedRanges.Length);
+        Assert.Equal(second.Address, runtime.ActiveCell);
+        Assert.Equal(second, runtime.AnchorCell);
+    }
+
+    [Fact]
+    public async Task RowHeightOverridesAreSemanticClampedResettableAndBounded()
+    {
+        var provider = Provider(4);
+        var runtime = new DataEntryGridRuntime(Definition(), provider,
+            rowHeightOptions: new(38, 24, 240, 2));
+        await runtime.LoadAsync(ContextA, null);
+        runtime.SelectCell(Address(provider.Rows[0], "TEXT"), 0);
+        var active = runtime.ActiveCell;
+
+        Assert.True(runtime.ResizeRow(provider.Rows[0].RowKey, 999));
+        Assert.True(runtime.ResizeRow(provider.Rows[1].RowKey, 1));
+        Assert.Equal(240, runtime.GetRowHeight(provider.Rows[0].RowKey));
+        Assert.Equal(24, runtime.GetRowHeight(provider.Rows[1].RowKey));
+        Assert.True(runtime.ResizeRow(provider.Rows[2].RowKey, 80));
+        Assert.Equal(2, runtime.RowHeightOverrideCount);
+        Assert.False(runtime.TryGetRowHeight(provider.Rows[0].RowKey, out _));
+        Assert.True(runtime.ResetRowHeight(provider.Rows[1].RowKey));
+        Assert.Equal(38, runtime.GetRowHeight(provider.Rows[1].RowKey));
+        Assert.Equal(active, runtime.ActiveCell);
+        Assert.Equal(4, runtime.Rows.Length);
+        Assert.Equal(0, runtime.PendingChangeCount);
+    }
+
+    [Fact]
+    public async Task GridRowHeightPercentageUsesDensityBaseAndSparseOverridePrecedence()
+    {
+        var provider = Provider(4); var runtime = Runtime(provider); await runtime.LoadAsync(ContextA, null);
+        runtime.SetRowHeightPercentage(125);
+        Assert.Equal(47.5m, runtime.ResolveRowHeight(provider.Rows[0].RowKey, 38m));
+        runtime.IncreaseRowHeight(); Assert.Equal(135, runtime.RowHeightScalePercent);
+        runtime.DecreaseRowHeight(); Assert.Equal(125, runtime.RowHeightScalePercent);
+        Assert.True(runtime.ResizeRow(provider.Rows[0].RowKey, 80));
+        Assert.Equal(80, runtime.ResolveRowHeight(provider.Rows[0].RowKey, 38m));
+        Assert.Equal(1, runtime.RowHeightOverrideCount);
+        runtime.SetRowHeightPercentage(999); Assert.Equal(300, runtime.RowHeightScalePercent);
+        runtime.ResetRowHeightPercentage(); Assert.Equal(100, runtime.RowHeightScalePercent);
+        Assert.Equal(1, runtime.RowHeightOverrideCount);
     }
 
     [Fact]
@@ -165,6 +224,47 @@ public sealed class GridEditingTests
         Assert.InRange(runtime.CachedRowCount, 1, 10);
     }
 
+    [Fact]
+    public async Task FormulaAndSystemRemainSelectableCopyableButAllMutationPathsRejectThem()
+    {
+        var provider = Provider(3); var runtime = Runtime(provider); await runtime.LoadAsync(ContextA, null);
+        Assert.True(runtime.BeginEdit(provider.Rows[0].RowKey, new("TEXT")));
+        runtime.CancelEdit();
+        Assert.False(runtime.BeginEdit(provider.Rows[0].RowKey, new("FORMULA")));
+        Assert.False(runtime.BeginEdit(provider.Rows[0].RowKey, new("SYSTEM")));
+
+        runtime.SelectCell(Address(provider.Rows[0], "FORMULA"), 0);
+        Assert.Equal(1, runtime.SelectedCellCount);
+        var formulaCopy = await runtime.BuildCopyTextAsync();
+        Assert.Null(formulaCopy.Diagnostic);
+        Assert.DoesNotContain("10", formulaCopy.Result!);
+        var clipboard = new MemoryClipboard();
+        var cut = await runtime.CutAsync(clipboard);
+        Assert.Equal("GRID_CLEAR_ATOMIC_REJECTED", cut.DiagnosticCode);
+        Assert.Equal(10, runtime.GetValue(provider.Rows[0].RowKey, new("FORMULA"), out _));
+        Assert.Equal("GRID_CLEAR_ATOMIC_REJECTED", (await runtime.ClearSelectedCellsAsync()).DiagnosticCode);
+
+        runtime.SelectCell(Address(provider.Rows[0], "FORMULA"), 0);
+        runtime.SelectCell(Address(provider.Rows[1], "FORMULA"), 1, extend: true);
+        Assert.Equal("GRID_FILL_ATOMIC_REJECTED", (await runtime.FillDownAsync()).DiagnosticCode);
+        Assert.Equal(20, runtime.GetValue(provider.Rows[1].RowKey, new("FORMULA"), out _));
+
+        runtime.SelectCell(Address(provider.Rows[0], "TEXT"), 0);
+        runtime.SelectCell(Address(provider.Rows[0], "SYSTEM"), 0, extend: true);
+        var atomic = await runtime.PasteTextAsync("ok\t2\t999\toverwrite");
+        Assert.Equal("GRID_PASTE_ATOMIC_REJECTED", atomic.DiagnosticCode);
+        Assert.Equal("row-1", runtime.GetValue(provider.Rows[0].RowKey, new("TEXT"), out _));
+
+        var partialProvider = Provider(1);
+        var partial = Runtime(partialProvider, new(PasteCommitMode.PartialValid)); await partial.LoadAsync(ContextA, null);
+        partial.SelectCell(Address(partialProvider.Rows[0], "TEXT"), 0);
+        partial.SelectCell(Address(partialProvider.Rows[0], "SYSTEM"), 0, extend: true);
+        var partialResult = await partial.PasteTextAsync("changed\t7\t999\toverwrite");
+        Assert.Equal(2, partialResult.AppliedCellCount); Assert.Equal(2, partialResult.RejectedCellCount);
+        Assert.Equal(10, partial.GetValue(partialProvider.Rows[0].RowKey, new("FORMULA"), out _));
+        Assert.Equal("system-1", partial.GetValue(partialProvider.Rows[0].RowKey, new("SYSTEM"), out _));
+    }
+
     private static DataEntryGridRuntime Runtime(EditingProvider provider, GridPasteOptions? options = null) =>
         new(Definition(), provider, pasteOptions: options);
     private static GridCellAddress Address(GridRow row, string variable) => new(row.RowKey, new(variable));
@@ -172,12 +272,15 @@ public sealed class GridEditingTests
     private static GridDefinition Definition() => new("editing", "EDITING", [
         Column("text", "TEXT", ColumnDataType.Text, 0, required: true),
         Column("number", "NUMBER", ColumnDataType.Integer, 1),
-        Column("formula", "FORMULA", ColumnDataType.Formula, 2, mode: ColumnMode.Formula, editor: ColumnEditorKind.Formula),
+        Column("formula", "FORMULA", ColumnDataType.Formula, 2, mode: ColumnMode.Formula, editor: ColumnEditorKind.Formula,
+            sensitive: new(Sensitivity.Restricted, PrivacyPresentation.Mask)),
+        Column("system", "SYSTEM", ColumnDataType.System, 3, mode: ColumnMode.System, editor: ColumnEditorKind.ReadOnly),
     ], selectionMode: GridSelectionMode.Multiple, allowEdit: true);
     private static ColumnDefinition Column(string id, string variable, ColumnDataType type, int order,
-        bool required = false, ColumnMode mode = ColumnMode.Input, ColumnEditorKind editor = ColumnEditorKind.TextBox) =>
+        bool required = false, ColumnMode mode = ColumnMode.Input, ColumnEditorKind editor = ColumnEditorKind.TextBox,
+        SensitiveContentDefinition? sensitive = null) =>
         new(id, variable, new(variable), $"Grid.{variable}", null, type, editor, mode, order, 100, 60, 200,
-            true, required, null, null, null, null, null, 1, SetupDefinitionStatus.Published);
+            true, required, null, null, null, null, null, 1, SetupDefinitionStatus.Published, sensitive);
 
     private sealed class EditingProvider : IDataEntryGridProvider, IGridBatchEditProvider
     {
@@ -206,6 +309,7 @@ public sealed class GridEditingTests
             return new(key, new Dictionary<VariableCode, object?> {
                 [new("TEXT")] = Value("TEXT", $"row-{index}"), [new("NUMBER")] = Value("NUMBER", index),
                 [new("FORMULA")] = index * 10,
+                [new("SYSTEM")] = $"system-{index}",
             });
         }
     }
@@ -229,7 +333,7 @@ public sealed class GridEditingTests
         private static ImmutableArray<GridRow> MakeRows(GridProviderContext context, int start, int count) =>
             Enumerable.Range(start + 1, count).Select(index => new GridRow(new($"{context.Company.CompanyId.Value}:{index}"),
                 new Dictionary<VariableCode, object?> { [new("TEXT")] = $"row-{index}", [new("NUMBER")] = index,
-                    [new("FORMULA")] = index * 10 })).ToImmutableArray();
+                    [new("FORMULA")] = index * 10, [new("SYSTEM")] = $"system-{index}" })).ToImmutableArray();
     }
 
     private sealed class MemoryClipboard : IGridClipboardService

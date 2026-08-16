@@ -26,6 +26,19 @@ public sealed partial class DataEntryGridRuntime
         return true;
     }
 
+    /// <summary>Replaces one compact semantic range while retaining caller-supplied prior ranges.</summary>
+    public bool SelectRange(GridRangeEndpoint anchor, GridRangeEndpoint end,
+        IEnumerable<GridCellRange>? retainedRanges = null)
+    {
+        if (!IsKnownRow(anchor.Address.RowKey, anchor.LogicalRowPosition) ||
+            !IsKnownRow(end.Address.RowKey, end.LogicalRowPosition) ||
+            !IsVisibleColumn(anchor.Address.VariableCode) || !IsVisibleColumn(end.Address.VariableCode)) return false;
+        var retained = (retainedRanges ?? []).ToImmutableArray();
+        CellSelection = new(end.Address, anchor, retained.Add(new(anchor, end)), SelectedRowKeys,
+            GridCellSelectionMode.Range);
+        OnChanged("CELL_SELECTION"); return true;
+    }
+
     public bool MoveActiveCell(int rowDelta, int columnDelta, bool extend = false)
     {
         var columns = VisibleVariableCodes();
@@ -107,6 +120,17 @@ public sealed partial class DataEntryGridRuntime
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch { return GridPasteResult.Rejected("GRID_CLIPBOARD_UNAVAILABLE"); }
+    }
+
+    public Task<GridPasteResult> CopyRowAsync(RowKey rowKey, IGridClipboardService clipboard,
+        CultureInfo? culture = null, CancellationToken cancellationToken = default)
+    {
+        var local = Rows.FindIndex(x => x.RowKey == rowKey);
+        var columns = VisibleVariableCodes();
+        if (local < 0 || columns.IsEmpty) return Task.FromResult(GridPasteResult.Rejected("GRID_ROW_UNAVAILABLE"));
+        SelectCell(new(rowKey, columns[0]), ViewportStartIndex + local);
+        SelectCell(new(rowKey, columns[^1]), ViewportStartIndex + local, extend: true);
+        return CopyAsync(clipboard, culture, cancellationToken);
     }
 
     public async Task<(string? Result, GridPasteResult? Diagnostic)> BuildCopyTextAsync(
@@ -230,6 +254,22 @@ public sealed partial class DataEntryGridRuntime
             errors.Count > 0 && applied.Success, DiagnosticCode: applied.DiagnosticCode));
     }
 
+    public async Task<GridPasteResult> ClearRowEditableValuesAsync(RowKey rowKey,
+        CancellationToken cancellationToken = default)
+    {
+        var row = Rows.FirstOrDefault(x => x.RowKey == rowKey);
+        if (row is null) return SetLastPaste(GridPasteResult.Rejected("GRID_ROW_UNAVAILABLE"));
+        var changes = PresentedColumns.Where(x => CanEditColumn(x.VariableCode)).Select(column =>
+            new GridCellChange(rowKey, column.VariableCode, GetValue(rowKey, column.VariableCode, out _), null,
+                GridCellValidationState.Valid)).Where(change =>
+                    GridValueValidator.Validate(ResolvedDefinition.Columns.First(x =>
+                        x.Definition.VariableCode == change.VariableCode).Definition, null) is null).ToImmutableArray();
+        if (changes.IsEmpty) return SetLastPaste(GridPasteResult.Rejected("GRID_CLEAR_NO_VALID_CELLS"));
+        var applied = await ApplyChangesAsync(changes, GridEditSourceAction.Clear, true, cancellationToken).ConfigureAwait(false);
+        return SetLastPaste(new(applied.Success ? changes.Length : 0, applied.Success ? 0 : changes.Length,
+            [], [], applied.WasAtomic, false, DiagnosticCode: applied.DiagnosticCode));
+    }
+
     public async Task<GridPasteResult> CutAsync(IGridClipboardService clipboard, CultureInfo? culture = null,
         CancellationToken cancellationToken = default)
     {
@@ -247,7 +287,7 @@ public sealed partial class DataEntryGridRuntime
             OriginalValue = x.CandidateValue, CandidateValue = x.OriginalValue,
             ValidationState = GridCellValidationState.Valid, Diagnostic = null,
         }).ToImmutableArray();
-        var result = await ApplyChangesAsync(changes, GridEditSourceAction.Undo, false, cancellationToken).ConfigureAwait(false);
+        var result = await ApplyPendingHistoryChangesAsync(changes, GridEditSourceAction.Undo, cancellationToken).ConfigureAwait(false);
         if (!result.Success) editHistory.RestoreUndoFailure(transaction);
         return new(result.Success ? changes.Length : 0, result.Success ? 0 : changes.Length, [], [], result.WasAtomic, false,
             DiagnosticCode: result.DiagnosticCode);
@@ -257,7 +297,8 @@ public sealed partial class DataEntryGridRuntime
     {
         var transaction = editHistory.TakeRedo();
         if (transaction is null) return GridPasteResult.Rejected("GRID_REDO_EMPTY");
-        var result = await ApplyChangesAsync(transaction.CellChanges, GridEditSourceAction.Redo, false, cancellationToken).ConfigureAwait(false);
+        var result = await ApplyPendingHistoryChangesAsync(transaction.CellChanges, GridEditSourceAction.Redo,
+            cancellationToken).ConfigureAwait(false);
         if (!result.Success) editHistory.RestoreRedoFailure(transaction);
         return new(result.Success ? transaction.CellChanges.Length : 0, result.Success ? 0 : transaction.CellChanges.Length,
             [], [], result.WasAtomic, false, DiagnosticCode: result.DiagnosticCode);
@@ -325,6 +366,17 @@ public sealed partial class DataEntryGridRuntime
         if (recordHistory) editHistory.Record(transaction with { CellChanges = committed.ToImmutable(), CommitState = GridEditCommitState.Committed });
         OnChanged(source.ToString().ToUpperInvariant());
         return (true, changes.Length <= 1, null);
+    }
+
+    private Task<(bool Success, bool WasAtomic, string? DiagnosticCode)> ApplyPendingHistoryChangesAsync(
+        ImmutableArray<GridCellChange> changes, GridEditSourceAction source, CancellationToken cancellationToken)
+    {
+        if (context is null)
+            return Task.FromResult((false, true, (string?)"GRID_CONTEXT_UNAVAILABLE"));
+        cancellationToken.ThrowIfCancellationRequested();
+        StageChanges(changes);
+        OnChanged(source.ToString().ToUpperInvariant());
+        return Task.FromResult((true, true, (string?)null));
     }
 
     private void ApplyValues(IEnumerable<GridCellChange> changes)

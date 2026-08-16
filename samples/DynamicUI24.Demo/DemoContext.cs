@@ -8,6 +8,14 @@ internal sealed class DemoContextProvider : IContextPanelProvider
     public string ProviderCode => "DEMO.CONTEXT";
     public async ValueTask<ContextPanelResult> GetContextAsync(ContextPanelRequest request)
     {
+        if (request.Selection.RowKey is null && request.Selection.EntityKey?.StartsWith("SHEET:", StringComparison.Ordinal) == true)
+        {
+            await Task.Delay(10, request.CancellationToken);
+            var safeCode = request.Selection.EntityKey[6..];
+            return new(ProviderCode, request.SemanticKey,
+                [new("SHEET", "Active sheet", [new("SHEET_CODE", "SheetCode", safeCode)], new("DATAENTRY.GRID"))],
+                ContextLoadingState.Ready, request.Generation);
+        }
         if (request.Selection.RowKey is null) return ContextPanelResult.Empty(ProviderCode, request.SemanticKey, request.Generation);
         await Task.Delay(request.Selection.RowKey.EndsWith("000000", StringComparison.Ordinal) ? 60 : 10, request.CancellationToken);
         var suffix = request.Selection.RowKey.Split(':')[^1];

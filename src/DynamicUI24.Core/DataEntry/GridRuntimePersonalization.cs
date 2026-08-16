@@ -10,6 +10,14 @@ public sealed partial class DataEntryGridRuntime
     public GridViewResolution View => GridViewPreferenceResolver.Resolve(ResolvedDefinition, viewPreference);
     public ImmutableArray<GridPresentedColumn> PresentedColumns => View.VisibleColumns;
     public GridViewPreference CurrentViewPreference => View.RepairedPreference;
+    public GridFindScope? RememberedFindScope => CurrentViewPreference.FindScope;
+
+    public void RememberFindScope(GridFindScope scope)
+    {
+        if (!Enum.IsDefined(scope)) return;
+        viewPreference = CurrentViewPreference with { FindScope = scope };
+        OnChanged("FIND_SCOPE_PREFERENCE");
+    }
 
     public void ApplyViewPreference(GridViewPreference? preference)
     {
@@ -22,14 +30,38 @@ public sealed partial class DataEntryGridRuntime
     {
         var item = View.Columns.FirstOrDefault(x => x.VariableCode == variableCode);
         if (item is null || width <= 0) return false;
-        return UpdateColumn(variableCode, x => x with { Width = Math.Clamp(width, item.Column.MinWidth, item.Column.MaxWidth) }, "COLUMN_RESIZE");
+        var bounded = Math.Clamp(width, item.Column.MinWidth, item.Column.MaxWidth);
+        return UpdateColumn(variableCode, x => x with { Width = bounded,
+            WidthScalePercent = Math.Clamp(bounded / x.Column.Width * 100m, 50m, 300m) }, "COLUMN_RESIZE");
     }
 
     public bool ResetColumnWidth(VariableCode variableCode)
     {
         var metadata = ResolvedDefinition.Columns.FirstOrDefault(x => x.Definition.VariableCode == variableCode);
-        return metadata is not null && UpdateColumn(variableCode, x => x with { Width = metadata.Width }, "COLUMN_WIDTH_RESET");
+        return metadata is not null && UpdateColumn(variableCode, x => x with
+            { Width = metadata.Width, WidthScalePercent = 100m }, "COLUMN_WIDTH_RESET");
     }
+
+    public bool SetColumnWidthPercentage(VariableCode variableCode, decimal percentage)
+    {
+        var item = View.Columns.FirstOrDefault(x => x.VariableCode == variableCode);
+        if (item is null) return false;
+        var scale = Math.Clamp(percentage, 50m, 300m);
+        return UpdateColumn(variableCode, x => x with
+        {
+            Width = Math.Clamp(x.Column.Width * scale / 100m, x.Column.MinWidth, x.Column.MaxWidth),
+            WidthScalePercent = scale,
+        }, "COLUMN_WIDTH_PERCENTAGE");
+    }
+
+    public bool IncreaseColumnWidth(VariableCode variableCode) =>
+        SetColumnWidthPercentage(variableCode, GetColumnWidthPercentage(variableCode) + 10m);
+
+    public bool DecreaseColumnWidth(VariableCode variableCode) =>
+        SetColumnWidthPercentage(variableCode, GetColumnWidthPercentage(variableCode) - 10m);
+
+    public decimal GetColumnWidthPercentage(VariableCode variableCode) =>
+        View.Columns.FirstOrDefault(x => x.VariableCode == variableCode)?.WidthScalePercent ?? 100m;
 
     public bool ReorderColumn(VariableCode variableCode, int targetVisibleIndex)
     {
@@ -130,7 +162,8 @@ public sealed partial class DataEntryGridRuntime
     private bool UpdateColumns(Func<GridPresentedColumn, GridPresentedColumn> update, string reason)
     {
         var columns = View.Columns.Select(update).OrderBy(x => x.Order).Select((x, index) =>
-            new GridColumnPreference(x.VariableCode, index, x.Width, x.IsVisible, x.Pin)).ToImmutableArray();
+            new GridColumnPreference(x.VariableCode, index, x.Width, x.IsVisible, x.Pin,
+                x.WidthScalePercent)).ToImmutableArray();
         viewPreference = CurrentViewPreference with { Columns = columns };
         OnChanged(reason); return true;
     }

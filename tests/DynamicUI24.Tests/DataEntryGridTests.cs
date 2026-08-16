@@ -5,6 +5,8 @@ using DynamicUI24.Core.DataEntry;
 using DynamicUI24.Core.Setup;
 using DynamicUI24.Shared.Presentation;
 using Xunit;
+using Avalonia;
+using DynamicUI24.Avalonia.Presentation;
 
 namespace DynamicUI24.Tests;
 
@@ -13,6 +15,18 @@ public sealed class DataEntryGridTests
     private static readonly CompanyDescriptor CompanyA = new(new("a"), "A", "Company A");
     private static readonly CompanyDescriptor CompanyB = new(new("b"), "B", "Company B");
     private static readonly GridProviderContext ContextA = new(CompanyA, "workspace");
+
+    [Fact]
+    public void ExpandedCellLayoutGrowsForLongAndMultilineContentButRemainsViewportBounded()
+    {
+        var source = new Size(120, 32); var viewport = new Size(900, 600);
+        var longText = DataEntryExpandedCellLayout.Resolve(new string('x', 240), source, viewport);
+        var multiline = DataEntryExpandedCellLayout.Resolve("one\ntwo\nthree\nfour\nfive\nsix", source, viewport);
+        Assert.True(longText.Width > source.Width); Assert.True(longText.Height > source.Height);
+        Assert.True(multiline.Height >= 92 + 6 * 22);
+        Assert.InRange(longText.Width, 320, viewport.Width * .82);
+        Assert.InRange(multiline.Height, 140, viewport.Height * .68);
+    }
 
     [Fact]
     public void ValidDefinitionReusesTask9ColumnsAndOrdersGeometry()
@@ -47,6 +61,10 @@ public sealed class DataEntryGridTests
             MinWidth = 300, MaxWidth = 100 };
         var resolved = GridMetadataResolver.Resolve(Definition([formula, system, unknown]), null);
         Assert.False(resolved.Columns[0].CanEdit); Assert.False(resolved.Columns[1].CanEdit);
+        Assert.True(resolved.Columns[0].IsFormulaDerived); Assert.False(resolved.Columns[1].IsFormulaDerived);
+        var inputWithFormulaEditor = GridMetadataResolver.Resolve(Definition([
+            Column("i", "I", "I", 0, mode: ColumnMode.Input, editor: ColumnEditorKind.Formula)]), null).Columns.Single();
+        Assert.False(inputWithFormulaEditor.CanEdit); Assert.False(inputWithFormulaEditor.IsFormulaDerived);
         Assert.Contains(resolved.Diagnostics, x => x.Code == "GRID_COLUMN_DATA_TYPE_UNKNOWN");
         Assert.Contains(resolved.Diagnostics, x => x.Code == "GRID_COLUMN_EDITOR_UNKNOWN");
         Assert.Contains(resolved.Diagnostics, x => x.Code == "GRID_COLUMN_WIDTH_INVALID");
@@ -158,18 +176,113 @@ public sealed class DataEntryGridTests
     [Fact]
     public async Task InputEditUsesCandidateValidationCommitAndCancel()
     {
-        var rows = Rows("a", 1);
+        var rows = Rows("a", 1); var providerCommits = 0;
         var provider = new StubProvider((_, _) => Task.FromResult(GridDataResult.Ready(rows)),
-            (_, edit) => Task.FromResult(GridCommitResult.Success(int.Parse(edit.CandidateValue!.ToString()!))));
+            (_, edit) => { providerCommits++; return Task.FromResult(GridCommitResult.Success(int.Parse(edit.CandidateValue!.ToString()!))); });
         var runtime = new DataEntryGridRuntime(Definition([Column("value", "VALUE", "VALUE", 0, required: true, type: ColumnDataType.Integer)]), provider);
         await runtime.LoadAsync(ContextA, null);
         Assert.True(runtime.BeginEdit(rows[0].RowKey, new("VALUE")));
         Assert.Equal("GRID_VALUE_REQUIRED", runtime.SetCandidate("")?.Code);
         Assert.Equal("GRID_VALUE_TYPE_INVALID", runtime.SetCandidate("bad")?.Code);
         Assert.Null(runtime.SetCandidate("42")); Assert.True(runtime.EditBuffer!.IsDirty);
-        Assert.True((await runtime.CommitEditAsync()).IsSuccess); Assert.Equal(42, runtime.GetValue(rows[0].RowKey, new("VALUE"), out _));
+        Assert.True((await runtime.CommitEditAsync()).IsSuccess);
+        Assert.Equal("42", runtime.GetValue(rows[0].RowKey, new("VALUE"), out _));
+        Assert.Equal(1, runtime.PendingChangeCount); Assert.Equal(0, providerCommits);
+        Assert.True(runtime.BeginEdit(rows[0].RowKey, new("VALUE")));
+        Assert.Equal("42", runtime.EditBuffer!.SourceValue);
+        Assert.Equal("42", runtime.EditBuffer.CandidateValue);
+        runtime.CancelEdit();
+        Assert.Equal(1, (await runtime.UndoAsync()).AppliedCellCount);
+        Assert.Equal("value-1", runtime.GetValue(rows[0].RowKey, new("VALUE"), out _));
+        Assert.Equal(0, runtime.PendingChangeCount); Assert.Equal(0, providerCommits);
+        Assert.Equal(1, (await runtime.RedoAsync()).AppliedCellCount);
+        Assert.Equal("42", runtime.GetValue(rows[0].RowKey, new("VALUE"), out _));
+        Assert.Equal(1, runtime.PendingChangeCount); Assert.Equal(0, providerCommits);
         runtime.BeginEdit(rows[0].RowKey, new("VALUE")); runtime.SetCandidate("77"); runtime.CancelEdit();
-        Assert.Equal(42, runtime.GetValue(rows[0].RowKey, new("VALUE"), out _));
+        Assert.Equal("42", runtime.GetValue(rows[0].RowKey, new("VALUE"), out _));
+        Assert.True((await runtime.SavePendingChangesAsync()).IsSuccess);
+        Assert.Equal(1, providerCommits); Assert.Equal(0, runtime.PendingChangeCount);
+    }
+
+    [Fact]
+    public async Task CellCommitIdentifiesChangedSemanticCellAndPendingValueSurvivesRematerialization()
+    {
+        var rows = Rows("a", 1); GridCellAddress? invalidated = null; var providerCommits = 0;
+        var provider = new StubProvider((_, _) => Task.FromResult(GridDataResult.Ready(rows)),
+            (_, edit) => { providerCommits++; return Task.FromResult(GridCommitResult.Success(edit.CandidateValue)); });
+        var runtime = new DataEntryGridRuntime(Definition([Column("value", "VALUE", "VALUE", 0)]), provider);
+        await runtime.LoadAsync(ContextA, null);
+        runtime.Changed += (_, args) => { if (args.Reason == "EDIT_COMMIT") invalidated = args.Cell; };
+        var address = new GridCellAddress(rows[0].RowKey, new("VALUE"));
+
+        Assert.True(runtime.BeginEdit(address.RowKey, address.VariableCode));
+        runtime.SetCandidate("pending");
+        Assert.True((await runtime.CommitEditAsync()).IsSuccess);
+        Assert.Equal(address, invalidated);
+        Assert.Equal("pending", runtime.GetValue(address.RowKey, address.VariableCode, out _));
+        Assert.Equal(0, providerCommits);
+
+        await runtime.LoadAsync(ContextA, null);
+        Assert.Equal("pending", runtime.GetValue(address.RowKey, address.VariableCode, out _));
+        Assert.True((await runtime.SavePendingChangesAsync()).IsSuccess);
+        Assert.Equal("pending", runtime.GetValue(address.RowKey, address.VariableCode, out _));
+        Assert.Equal(1, providerCommits);
+    }
+
+    [Fact]
+    public async Task UnicodeEditorCandidateRemainsUnchangedUntilCellCommit()
+    {
+        var rows = Rows("a", 1); var providerCommits = 0;
+        var provider = new StubProvider((_, _) => Task.FromResult(GridDataResult.Ready(rows)),
+            (_, edit) => { providerCommits++; return Task.FromResult(GridCommitResult.Success(edit.CandidateValue)); });
+        var runtime = new DataEntryGridRuntime(Definition([Column("value", "VALUE", "VALUE", 0)]), provider);
+        await runtime.LoadAsync(ContextA, null);
+        Assert.True(runtime.BeginEdit(rows[0].RowKey, new("VALUE")));
+        const string composed = "Tiếng Việt — Nguyễn Văn Anh — 日本語 — 한국어 — العربية";
+        Assert.Null(runtime.SetCandidate(composed));
+        Assert.Equal(composed, runtime.EditBuffer!.CandidateValue);
+        Assert.Equal("value-1", runtime.GetValue(rows[0].RowKey, new("VALUE"), out _));
+        Assert.Equal(0, providerCommits);
+        Assert.True((await runtime.CommitEditAsync()).IsSuccess);
+        Assert.Equal(composed, runtime.GetValue(rows[0].RowKey, new("VALUE"), out _));
+        Assert.Equal(1, runtime.PendingChangeCount); Assert.Equal(0, providerCommits);
+    }
+
+    [Fact]
+    public async Task PercentageSizingChangesPresentationWithoutProviderReloadOrMaterialization()
+    {
+        var rows = Rows("a", 3); var loads = 0;
+        var provider = new StubProvider((_, _) => { loads++; return Task.FromResult(GridDataResult.Ready(rows)); });
+        var runtime = new DataEntryGridRuntime(Definition([Column("value", "VALUE", "VALUE", 0, width: 120,
+            min: 40, max: 400)]), provider);
+        await runtime.LoadAsync(ContextA, null);
+        var materialized = runtime.Rows.Length;
+        Assert.True(runtime.SetColumnWidthPercentage(new("VALUE"), 150));
+        runtime.SetRowHeightPercentage(125);
+        Assert.Equal(180, runtime.PresentedColumns.Single().Width);
+        Assert.Equal(47.5m, runtime.ResolveRowHeight(rows[0].RowKey, 38m));
+        Assert.Equal(1, loads); Assert.Equal(materialized, runtime.Rows.Length);
+    }
+
+    [Fact]
+    public async Task CellContextPreservesContainingRangeAndActivatesOutsideCellWithoutProviderWork()
+    {
+        var rows = Rows("a", 3); var loads = 0;
+        var provider = new StubProvider((_, _) => { loads++; return Task.FromResult(GridDataResult.Ready(rows)); });
+        var runtime = new DataEntryGridRuntime(Definition(selectionMode: GridSelectionMode.Multiple), provider);
+        await runtime.LoadAsync(ContextA, null);
+        var host = new DataEntryGridHost(runtime, new DictionaryLocalizationService("en-US"));
+        var first = new GridCellAddress(rows[0].RowKey, new("VALUE"));
+        var second = new GridCellAddress(rows[1].RowKey, new("VALUE"));
+        var outside = new GridCellAddress(rows[2].RowKey, new("VALUE"));
+        runtime.SelectCell(first, 0); runtime.SelectCell(second, 1, extend: true);
+        var selected = runtime.CellSelection;
+        Assert.False(host.PrepareCellContext(second, 1));
+        Assert.Equal(selected, runtime.CellSelection);
+        Assert.True(host.PrepareCellContext(outside, 2));
+        Assert.Equal(outside, runtime.ActiveCell);
+        Assert.Single(runtime.SelectedRanges); Assert.Equal(1, runtime.SelectedRanges[0].RowCount);
+        Assert.Equal(1, loads); Assert.Equal(3, runtime.Rows.Length);
     }
 
     [Fact]

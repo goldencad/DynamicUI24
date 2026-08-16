@@ -33,7 +33,7 @@ internal static class DemoDataEntry
         };
         return new("demo-data-grid", "DEMO_DATA_GRID", columns, new("Grid.Title"),
             [new(new("ITEM_CODE"), GridSortDirection.Ascending)], selectionMode: GridSelectionMode.Multiple,
-            allowEdit: true, allowAdd: true, showRowNumbers: true, showStatusBar: true);
+            allowEdit: true, allowAdd: true, allowDelete: true, showRowNumbers: true, showStatusBar: true);
     }
 
     private static ColumnDefinition Column(string id, string code, string variable, string label, ColumnDataType type,
@@ -44,16 +44,23 @@ internal static class DemoDataEntry
 }
 
 internal sealed class DemoDataEntryProvider : IVirtualizedGridDataProvider, IGridLogicalRowProvider, IGridBatchEditProvider,
-    IGridBatchRowImportProvider, IGridExportProvider
+    IGridBatchRowImportProvider, IGridExportProvider, IGridRowLifecycleProvider, IGridRowCalculationInvalidation,
+    IGridFindProvider
 {
     public const int LogicalRowCount = 100_000;
     private readonly object sync = new();
     private readonly Dictionary<(CompanyId CompanyId, RowKey RowKey, VariableCode VariableCode), object?> edits = [];
+    private readonly Dictionary<CompanyId, List<(RowKey Key, RowKey Anchor, GridRowInsertPlacement Placement,
+        ImmutableDictionary<VariableCode, object?> Values)>> inserted = [];
+    private readonly Dictionary<CompanyId, HashSet<RowKey>> deleted = [];
+    private long insertedIdentity;
     private int generatedRowCount;
     private int viewportRequestCount;
     public bool SimulateFailure { get; set; }
     public int GeneratedRowCount => Volatile.Read(ref generatedRowCount);
     public int ViewportRequestCount => Volatile.Read(ref viewportRequestCount);
+    public bool CanInsertRows => true;
+    public bool CanDeleteRows => true;
 
     public async Task<GridDataResult> LoadAsync(GridProviderContext context, GridDataRequest request,
         CancellationToken cancellationToken = default)
@@ -75,13 +82,23 @@ internal sealed class DemoDataEntryProvider : IVirtualizedGridDataProvider, IGri
         var wantedCount = request.MaterializedRowCount;
         var rows = ImmutableArray.CreateBuilder<GridRow>(wantedCount);
         var matched = 0;
+        void Consider(GridRow row)
+        {
+            if (!Matches(row, request.FilterDefinitions)) return;
+            if (matched >= wantedStart && rows.Count < wantedCount) rows.Add(row);
+            matched++;
+        }
         for (var offset = 0; offset < LogicalRowCount; offset++)
         {
             cancellationToken.ThrowIfCancellationRequested();
             var logicalIndex = descending ? LogicalRowCount - offset : offset + 1;
-            if (!Matches(logicalIndex, context.Company, request.FilterDefinitions)) continue;
-            if (matched >= wantedStart && rows.Count < wantedCount) rows.Add(BuildRow(context.Company, logicalIndex));
-            matched++;
+            var baseKey = BaseRowKey(context.Company, logicalIndex);
+            foreach (var item in InsertedAt(context.Company.CompanyId, baseKey, GridRowInsertPlacement.Before))
+                if (!IsDeleted(context.Company.CompanyId, item.Key)) Consider(BuildInsertedRow(context.Company, item));
+            if (!IsDeleted(context.Company.CompanyId, baseKey) && Matches(logicalIndex, context.Company, request.FilterDefinitions))
+                Consider(BuildRow(context.Company, logicalIndex));
+            foreach (var item in InsertedAt(context.Company.CompanyId, baseKey, GridRowInsertPlacement.After))
+                if (!IsDeleted(context.Company.CompanyId, item.Key)) Consider(BuildInsertedRow(context.Company, item));
         }
         Interlocked.Add(ref generatedRowCount, rows.Count);
         return new(rows.Count == 0 ? GridProviderState.Empty : GridProviderState.Ready, wantedStart, rows.ToImmutable(),
@@ -95,6 +112,12 @@ internal sealed class DemoDataEntryProvider : IVirtualizedGridDataProvider, IGri
         cancellationToken.ThrowIfCancellationRequested();
         lock (sync)
         {
+            var insertedRow = inserted.GetValueOrDefault(context.Company.CompanyId)?.FirstOrDefault(x => x.Key == edit.RowKey);
+            if (insertedRow is not null)
+            {
+                edits[(context.Company.CompanyId, edit.RowKey, edit.VariableCode)] = edit.CandidateValue;
+                return Task.FromResult(GridCommitResult.Success(edit.CandidateValue));
+            }
             var separator = edit.RowKey.Value.LastIndexOf(':');
             if (separator < 0 || !int.TryParse(edit.RowKey.Value[(separator + 1)..], out var logicalIndex) ||
                 logicalIndex is < 1 or > LogicalRowCount)
@@ -106,24 +129,130 @@ internal sealed class DemoDataEntryProvider : IVirtualizedGridDataProvider, IGri
         }
     }
 
-    public Task<ImmutableArray<GridRow>> ResolveRowsAsync(GridProviderContext context, int startPosition, int rowCount,
+    public Task<GridRowInsertResult> InsertRowAsync(GridProviderContext context, GridRowInsertRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (sync)
+        {
+            var key = new RowKey($"{context.Company.CompanyId.Value}:INSERT:{Interlocked.Increment(ref insertedIdentity):000000}");
+            if (!inserted.TryGetValue(context.Company.CompanyId, out var rows)) inserted[context.Company.CompanyId] = rows = [];
+            rows.Add((key, request.AnchorRowKey, request.Placement, request.InitialValues));
+            var position = request.AnchorLogicalPosition +
+                (request.Placement == GridRowInsertPlacement.After ? 1 : 0);
+            return Task.FromResult(GridRowInsertResult.Success(key, LogicalRowCount + rows.Count -
+                (deleted.GetValueOrDefault(context.Company.CompanyId)?.Count ?? 0), position));
+        }
+    }
+
+    public Task<GridFindResult> FindAsync(GridProviderContext context, GridFindRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var columns = request.Scope == GridFindScope.CurrentColumn && request.VariableCode is { } current
+            ? [current] : request.EligibleVariableCodes;
+        if (request.Scope == GridFindScope.CurrentRow)
+            return Task.FromResult(FindInCurrentRow(context, request, columns));
+        var descending = request.Sorts.FirstOrDefault()?.Direction == GridSortDirection.Descending;
+        var position = 0;
+        (GridRow Row, VariableCode Variable, int Position)? forward = null, wrap = null, same = null;
+        for (var offset = 0; offset < LogicalRowCount; offset++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var logicalIndex = descending ? LogicalRowCount - offset : offset + 1;
+            var baseKey = BaseRowKey(context.Company, logicalIndex);
+            foreach (var item in InsertedAt(context.Company.CompanyId, baseKey, GridRowInsertPlacement.Before))
+                Consider(BuildInsertedRow(context.Company, item));
+            if (!IsDeleted(context.Company.CompanyId, baseKey)) Consider(BuildRow(context.Company, logicalIndex));
+            foreach (var item in InsertedAt(context.Company.CompanyId, baseKey, GridRowInsertPlacement.After))
+                Consider(BuildInsertedRow(context.Company, item));
+        }
+        var match = forward ?? wrap ?? same;
+        return Task.FromResult(match is null ? GridFindResult.NoMatch(request.RequestGeneration) :
+            GridFindResult.Match(match.Value.Row.RowKey, match.Value.Variable, match.Value.Position,
+                request.RequestGeneration));
+
+        void Consider(GridRow row)
+        {
+            if (!Matches(row, request.Filters)) return;
+            var variable = columns.FirstOrDefault(code => Text(row.Values.GetValueOrDefault(code)).Contains(request.Query,
+                StringComparison.CurrentCultureIgnoreCase));
+            if (variable != default)
+            {
+                if (position == request.StartPosition) same = (row, variable, position);
+                var after = position > request.StartPosition;
+                var before = position < request.StartPosition;
+                if (request.Direction == GridFindDirection.Next)
+                {
+                    if (after && forward is null) forward = (row, variable, position);
+                    else if (before && wrap is null) wrap = (row, variable, position);
+                }
+                else
+                {
+                    if (before) forward = (row, variable, position);
+                    else if (after) wrap = (row, variable, position);
+                }
+            }
+            position++;
+        }
+        static string Text(object? value) => value?.ToString() ?? string.Empty;
+    }
+
+    private GridFindResult FindInCurrentRow(GridProviderContext context, GridFindRequest request,
+        ImmutableArray<VariableCode> columns)
+    {
+        if (request.RowKey is not { } key) return GridFindResult.Rejected("GRID_FIND_ROW_UNAVAILABLE", request.RequestGeneration);
+        GridRow? row = null;
+        var separator = key.Value.LastIndexOf(':');
+        if (separator >= 0 && int.TryParse(key.Value[(separator + 1)..], out var index) &&
+            index is >= 1 and <= LogicalRowCount && !IsDeleted(context.Company.CompanyId, key))
+            row = BuildRow(context.Company, index);
+        else
+        {
+            lock (sync)
+            {
+                var insertedRow = inserted.GetValueOrDefault(context.Company.CompanyId)?.FirstOrDefault(x => x.Key == key);
+                if (insertedRow is not null && !IsDeleted(context.Company.CompanyId, key))
+                    row = BuildInsertedRow(context.Company, insertedRow.Value);
+            }
+        }
+        if (row is null || !Matches(row, request.Filters))
+            return GridFindResult.Rejected("GRID_FIND_ROW_UNAVAILABLE", request.RequestGeneration);
+        var start = request.VariableCode is { } active ? columns.IndexOf(active) : -1;
+        var ordered = request.Direction == GridFindDirection.Next
+            ? columns.Skip(start + 1).Concat(columns.Take(start + 1))
+            : columns.Take(Math.Max(0, start)).Reverse().Concat(columns.Skip(Math.Max(0, start)).Reverse());
+        var match = ordered.FirstOrDefault(code => (row.Values.GetValueOrDefault(code)?.ToString() ?? string.Empty)
+            .Contains(request.Query, StringComparison.CurrentCultureIgnoreCase));
+        return match == default ? GridFindResult.NoMatch(request.RequestGeneration) :
+            GridFindResult.Match(key, match, request.StartPosition, request.RequestGeneration);
+    }
+
+    public Task<GridRowDeleteResult> DeleteRowsAsync(GridProviderContext context, GridRowDeleteRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (sync)
+        {
+            if (!deleted.TryGetValue(context.Company.CompanyId, out var keys)) deleted[context.Company.CompanyId] = keys = [];
+            foreach (var key in request.RowKeys) keys.Add(key);
+            return Task.FromResult(GridRowDeleteResult.Success(request.RowKeys,
+                LogicalRowCount + (inserted.GetValueOrDefault(context.Company.CompanyId)?.Count ?? 0) - keys.Count));
+        }
+    }
+
+    public Task InvalidateRowsAsync(GridProviderContext context, IEnumerable<RowKey> changedRows,
+        CancellationToken cancellationToken = default) { cancellationToken.ThrowIfCancellationRequested(); return Task.CompletedTask; }
+
+    public async Task<ImmutableArray<GridRow>> ResolveRowsAsync(GridProviderContext context, int startPosition, int rowCount,
         ImmutableArray<GridSortDefinition> sorts, ImmutableArray<GridFilterDefinition> filters,
         long requestGeneration, CancellationToken cancellationToken = default)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(startPosition);
         if (rowCount <= 0) throw new ArgumentOutOfRangeException(nameof(rowCount));
-        var descending = sorts.FirstOrDefault()?.Direction == GridSortDirection.Descending;
-        var rows = ImmutableArray.CreateBuilder<GridRow>(rowCount);
-        var matched = 0;
-        for (var offset = 0; offset < LogicalRowCount && rows.Count < rowCount; offset++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var logicalIndex = descending ? LogicalRowCount - offset : offset + 1;
-            if (!Matches(logicalIndex, context.Company, filters)) continue;
-            if (matched++ >= startPosition) rows.Add(BuildRow(context.Company, logicalIndex));
-        }
-        Interlocked.Add(ref generatedRowCount, rows.Count);
-        return Task.FromResult(rows.ToImmutable());
+        var result = await LoadViewportAsync(context, new(startPosition, rowCount, 0, 0, sorts, filters,
+            requestGeneration), cancellationToken);
+        return result.Rows;
     }
 
     public Task<GridBatchCommitResult> CommitBatchAsync(GridProviderContext context, GridEditTransaction transaction,
@@ -135,6 +264,12 @@ internal sealed class DemoDataEntryProvider : IVirtualizedGridDataProvider, IGri
             var resolved = new List<(GridCellChange Change, object? Value)>(transaction.CellChanges.Length);
             foreach (var change in transaction.CellChanges)
             {
+                var insertedRow = inserted.GetValueOrDefault(context.Company.CompanyId)?.FirstOrDefault(x => x.Key == change.RowKey);
+                if (insertedRow is not null)
+                {
+                    resolved.Add((change, change.CandidateValue));
+                    continue;
+                }
                 var separator = change.RowKey.Value.LastIndexOf(':');
                 if (separator < 0 || !int.TryParse(change.RowKey.Value[(separator + 1)..], out var logicalIndex) ||
                     logicalIndex is < 1 or > LogicalRowCount)
@@ -188,7 +323,7 @@ internal sealed class DemoDataEntryProvider : IVirtualizedGridDataProvider, IGri
         var quantity = index * 2;
         var rate = 7.25m + index / 4m;
         var prefix = company.Code;
-        var rowKey = new RowKey($"{company.CompanyId.Value}:ROW:{index:000000}");
+        var rowKey = BaseRowKey(company, index);
         var values = new Dictionary<VariableCode, object?>
         {
             [new("ITEM_CODE")] = $"{prefix}-{index:000000}", [new("ITEM_NAME")] = $"Sample item {index:000000}",
@@ -205,6 +340,28 @@ internal sealed class DemoDataEntryProvider : IVirtualizedGridDataProvider, IGri
                 values[edit.Key.VariableCode] = edit.Value;
         return new GridRow(rowKey, values, warningCount: index % 997 == 0 ? 1 : 0);
     }
+
+    private static RowKey BaseRowKey(CompanyDescriptor company, int index) =>
+        new($"{company.CompanyId.Value}:ROW:{index:000000}");
+
+    private IEnumerable<(RowKey Key, RowKey Anchor, GridRowInsertPlacement Placement,
+        ImmutableDictionary<VariableCode, object?> Values)> InsertedAt(CompanyId company, RowKey anchor,
+        GridRowInsertPlacement placement)
+    { lock (sync) return inserted.GetValueOrDefault(company)?.Where(x => x.Anchor == anchor && x.Placement == placement).ToArray() ?? []; }
+
+    private bool IsDeleted(CompanyId company, RowKey key) { lock (sync) return deleted.GetValueOrDefault(company)?.Contains(key) == true; }
+
+    private GridRow BuildInsertedRow(CompanyDescriptor company, (RowKey Key, RowKey Anchor,
+        GridRowInsertPlacement Placement, ImmutableDictionary<VariableCode, object?> Values) item)
+    {
+        var values = item.Values.ToDictionary(x => x.Key, x => x.Value);
+        lock (sync) foreach (var edit in edits.Where(x => x.Key.CompanyId == company.CompanyId && x.Key.RowKey == item.Key))
+            values[edit.Key.VariableCode] = edit.Value;
+        return new(item.Key, values);
+    }
+
+    private static bool Matches(GridRow row, IEnumerable<GridFilterDefinition> filters) =>
+        filters.All(filter => Matches(row.Values.GetValueOrDefault(filter.VariableCode), filter));
 
     private static bool Matches(int index, CompanyDescriptor company, IEnumerable<GridFilterDefinition> filters)
     {
