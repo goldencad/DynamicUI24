@@ -239,7 +239,11 @@ Generic contracts expose generic options. Vendor-specific advanced options belon
 
 ## 19. Capability discovery
 
-Use explicit capabilities such as `READ`, `WRITE`, `CONVERT`, `PREVIEW`, `PRINT`, `MERGE`, `SPLIT`, `SIGN`, `EXTRACT`, `METADATA`, `PROTECT`.
+Use explicit document-processing capabilities such as `READ`, `WRITE`, `CONVERT`, `PREVIEW`, `PRINT`, `MERGE`, `SPLIT`, `EXTRACT`, `METADATA`, `PROTECT`.
+
+`SIGN` is intentionally NOT a DevExpress document-adapter capability in TS24 architecture.
+
+Digital signing belongs to the separate TS24 signing module.
 
 Unknown/unsupported capability fails safely.
 
