@@ -10,6 +10,7 @@ internal static class DemoTree
     [
         new("dashboard", "DASHBOARD", new("Tree.Dashboard"), iconKey: StandardIconKeys.Application),
         new("overview", "OVERVIEW", new("Tree.Overview"), "dashboard", StandardIconKeys.Preview, workspaceId: "dashboard-demo"),
+        new("editors", "EDITORS", new("Editor Demo"), "dashboard", StandardIconKeys.Edit, 5, "editor-demo"),
         new("data", "DATA", new("Tree.Data"), "dashboard", StandardIconKeys.Edit, 10),
         new("entry", "ENTRY", new("Tree.Entry"), "data", StandardIconKeys.Edit, workspaceId: "data-entry-demo"),
         new("review", "REVIEW", new("Tree.Review"), "data", StandardIconKeys.Preview, 10, "history-demo"),

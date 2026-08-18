@@ -10,6 +10,8 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using DynamicUI24.Core.Authorization;
 using DynamicUI24.Core.DataEntry;
+using DynamicUI24.Core.Editors;
+using DynamicUI24.Avalonia.Presentation.Editors;
 using DynamicUI24.Core.Setup;
 using DynamicUI24.Core.Privacy;
 using DynamicUI24.Shared.Presentation;
@@ -20,6 +22,7 @@ namespace DynamicUI24.Avalonia.Presentation;
 /// <summary>Metadata-driven table adapter. All data and editing behavior remains in the Avalonia-free runtime.</summary>
 public sealed class DataEntryGridHost : UserControl
 {
+    private readonly EditorResolver editorResolver = new();
     private readonly DataEntryGridRuntime runtime;
     private readonly ILocalizationService localization;
     private readonly AppearancePreferenceService? appearance;
@@ -151,6 +154,7 @@ public sealed class DataEntryGridHost : UserControl
     public int RenderedColumnCount => runtime.PresentedColumns.Length;
     public int RenderedRowCount => runtime.Rows.Length;
     public bool HasActiveEditor => activeEditor is not null;
+    public EditorResolution? LastEditorResolution { get; private set; }
     public event EventHandler? Changed;
 
     public Task LoadAsync(GridProviderContext providerContext, EffectiveAuthorizationContext? effectiveAuthorization,
@@ -390,6 +394,9 @@ public sealed class DataEntryGridHost : UserControl
         TextBlock? valuePresenter = null;
         if (isEditing)
         {
+            LastEditorResolution = editorResolver.Resolve(
+                GridEditorDefinitionAdapter.Create(runtime.Definition.GridCode, column.Definition),
+                EditorPlatformCapabilities.AllNative);
             var editor = new TextBox { Text = runtime.EditBuffer!.CandidateValue?.ToString(), Margin = new Thickness(2),
                 Watermark = column.Definition.IsRequired ? localization.Get(new("Grid.Required")) : null };
             activeEditor = editor;
@@ -1099,6 +1106,7 @@ public sealed class DataEntryGridHost : UserControl
 
     private async void HandleKeyDown(object? sender, KeyEventArgs args)
     {
+        if (NativeEditorInputOwnership.Owns(args.Source as InputElement)) return;
         if (expandedCell.IsOpen && expandedValue.IsKeyboardFocusWithin) return;
         if (findSurface.IsVisible && findQuery.IsKeyboardFocusWithin &&
             !(HasPrimaryModifier(args.KeyModifiers) && args.Key == Key.F)) return;

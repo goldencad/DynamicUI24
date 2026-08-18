@@ -1,9 +1,23 @@
 using Avalonia.Controls;
+using System.Globalization;
 using DynamicUI24.Core.Templates;
 using DynamicUI24.Core.Workspaces;
 using DynamicUI24.Shared.Presentation;
 
 namespace DynamicUI24.Avalonia;
+
+/// <summary>A stateful view that can localize itself without rematerializing its active control tree.</summary>
+public interface IRuntimeLocalizationAware
+{
+    void RefreshLocalization(CultureInfo culture);
+}
+
+/// <summary>Receives deterministic activation after a retained workspace control is assigned to the visual host.</summary>
+public interface IRuntimeWorkspaceActivationAware
+{
+    void WorkspaceActivated();
+    void WorkspaceDeactivated();
+}
 
 /// <summary>Minimal visual adapter for a registry-resolved workspace descriptor.</summary>
 public sealed class DynamicWorkspaceHost : ContentControl
@@ -11,6 +25,7 @@ public sealed class DynamicWorkspaceHost : ContentControl
     private readonly WorkspaceResolver resolver;
     private readonly ILocalizationService localization;
     private readonly Dictionary<TemplateCode, Func<WorkspaceDefinition, Control>> viewFactories = new();
+    private readonly Dictionary<string, Control> statefulViews = new(StringComparer.OrdinalIgnoreCase);
     private WorkspaceDefinition? currentDefinition;
 
     public DynamicWorkspaceHost(TemplateRegistry registry, ILocalizationService localization)
@@ -32,20 +47,31 @@ public sealed class DynamicWorkspaceHost : ContentControl
 
     public WorkspaceResolutionResult ShowWorkspace(WorkspaceDefinition definition)
     {
+        var previous = Content as IRuntimeWorkspaceActivationAware;
         currentDefinition = definition ?? throw new ArgumentNullException(nameof(definition));
         var result = resolver.Resolve(definition);
         CurrentResult = result;
-        Content = result.IsSuccess
-            ? viewFactories.TryGetValue(definition.TemplateCode, out var factory)
-                ? factory(definition)
-                : CreateSuccessContent(result.Workspace!, localization)
-            : CreateFailureContent(definition, result.Error!, localization);
+        var next = result.IsSuccess ? ResolveContent(definition, result.Workspace!) :
+            CreateFailureContent(definition, result.Error!, localization);
+        if (!ReferenceEquals(previous, next)) previous?.WorkspaceDeactivated();
+        Content = next;
+        (next as IRuntimeWorkspaceActivationAware)?.WorkspaceActivated();
         return result;
+    }
+
+    private Control ResolveContent(WorkspaceDefinition definition, WorkspaceDescriptor workspace)
+    {
+        if (statefulViews.TryGetValue(definition.WorkspaceId, out var cached)) return cached;
+        var content = viewFactories.TryGetValue(definition.TemplateCode, out var factory)
+            ? factory(definition) : CreateSuccessContent(workspace, localization);
+        if (content is IRuntimeLocalizationAware) statefulViews[definition.WorkspaceId] = content;
+        return content;
     }
 
     /// <summary>Clears the active workspace when navigation has no safe target.</summary>
     public void Clear()
     {
+        (Content as IRuntimeWorkspaceActivationAware)?.WorkspaceDeactivated();
         currentDefinition = null;
         CurrentResult = null;
         Content = new TextBlock { Text = localization.Get(new("State.Empty")) };
@@ -53,6 +79,11 @@ public sealed class DynamicWorkspaceHost : ContentControl
 
     private void Refresh()
     {
+        if (Content is IRuntimeLocalizationAware localizationAware)
+        {
+            localizationAware.RefreshLocalization(localization.CurrentCulture);
+            return;
+        }
         if (currentDefinition is not null)
         {
             ShowWorkspace(currentDefinition);

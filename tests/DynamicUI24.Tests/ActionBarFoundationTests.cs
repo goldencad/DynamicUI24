@@ -4,6 +4,7 @@ using DynamicUI24.Core.Companies;
 using DynamicUI24.Core.Navigation;
 using DynamicUI24.Core.Templates;
 using DynamicUI24.Core.Workspaces;
+using DynamicUI24.Core.Editors;
 using DynamicUI24.Shared.Presentation;
 using Xunit;
 
@@ -225,6 +226,31 @@ public sealed class ActionBarFoundationTests
         Assert.Equal(ActionCommandResultStatus.Unavailable,
             (await dispatcher.DispatchMenuItemAsync(Item("GROUP", null, AuthorizationPresentationState.VisibleEnabled,
                 Item("CHILD", "OK", AuthorizationPresentationState.VisibleEnabled)), context)).Status);
+    }
+
+    [Fact]
+    public async Task EditorActionsReuseSharedRegistryAndSuppressReadOnlyDisabledAndDeniedPermission()
+    {
+        var calls = 0;
+        var registry = new ActionCommandRegistry();
+        registry.Register("EDITOR.OPEN", (_, _) => { calls++; return Task.FromResult(ActionCommandResult.Success("observed")); });
+        var dispatcher = new EditorActionDispatcher(registry);
+        var context = new ActionCommandExecutionContext(Context(CompanyA, Authorization(CompanyA, [], []), 0));
+        var action = new EditorActionDefinition("EDITOR.OPEN", EditorActionKind.Open, new("Open"));
+        var editable = new EditorResolution(EditorResolutionStatus.Resolved, EditorKind.Hyperlink,
+            EditorInteractionState.Editable, EditorPlatformCapabilityStatus.Supported);
+
+        var success = await dispatcher.DispatchAsync(action, editable, context);
+        Assert.Equal(ActionCommandResultStatus.Success, success.Status);
+        Assert.Equal("observed", success.Message);
+        Assert.Equal(ActionCommandResultStatus.Denied, (await dispatcher.DispatchAsync(action,
+            editable with { InteractionState = EditorInteractionState.ReadOnly }, context)).Status);
+        Assert.Equal(ActionCommandResultStatus.Denied, (await dispatcher.DispatchAsync(action,
+            editable with { InteractionState = EditorInteractionState.Disabled }, context)).Status);
+        var permissionAction = action with { Requirement = new(new PermissionCode("EDITOR.OPEN")) };
+        Assert.Equal(ActionCommandResultStatus.Denied,
+            (await dispatcher.DispatchAsync(permissionAction, editable, context)).Status);
+        Assert.Equal(1, calls);
     }
 
     [Fact]

@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Input;
+using DynamicUI24.Avalonia.Presentation.Editors;
 using Avalonia.Automation;
 using DynamicUI24.Shared.Presentation;
 
@@ -49,6 +50,7 @@ public sealed partial class ShellHost : UserControl
         };
         KeyDown += (_, e) =>
         {
+            if (NativeEditorInputOwnership.Owns(e.Source as InputElement)) return;
             if (e.Key == Key.K && e.KeyModifiers.HasFlag(OperatingSystem.IsMacOS() ? KeyModifiers.Meta : KeyModifiers.Control))
             {
                 IsSearchOpen = true;

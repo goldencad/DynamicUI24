@@ -38,12 +38,13 @@ public sealed partial class MainWindow : Window
     private readonly SemanticIconRegistry iconRegistry;
     private readonly DynamicUI24.Avalonia.DynamicWorkspaceHost workspaceHost;
     private readonly SetupWorkspaceHost setupWorkspaceHost;
-    private readonly DemoDataEntryProvider dataEntryProvider;
-    private readonly DataEntryGridHost dataEntryGridHost;
-    private readonly DemoMultiSheetWorkspace multiSheetWorkspace;
+    private DemoDataEntryProvider dataEntryProvider = null!;
+    private DataEntryGridHost dataEntryGridHost = null!;
+    private DemoMultiSheetWorkspace multiSheetWorkspace = null!;
     private readonly IPrivacyStateService privacyState;
-    private readonly ImportExportWorkspaceHost importExportHost;
-    private readonly TabControl dataEntryTabs;
+    private ImportExportWorkspaceHost importExportHost = null!;
+    private TabControl dataEntryTabs = null!;
+    private readonly Lazy<Control> dataEntryWorkspace;
     private readonly SharedStateView stateView;
     private readonly ICompanyContextProvider companyContext;
     private readonly CompanyScopeCoordinator companyScope;
@@ -124,45 +125,16 @@ public sealed partial class MainWindow : Window
         setupWorkspaceHost = new SetupWorkspaceHost(DemoSetup.Categories, setupProvider,
             new SpecializedSetupValidator(setupProvider, composition.Registry), DemoSetup.CreateEditors(composition.Registry, setupProvider), localization, iconRegistry,
             companyContext.CurrentCompany, appearance: appearanceService);
-        dataEntryProvider = new DemoDataEntryProvider();
         privacyState = new PrivacyStateService();
         var privacyResolver = new PrivacyPolicyResolver();
         var sensitiveValuePresenter = new SensitiveValuePresenter();
         contextItemPresenter = new ContextItemPresenter(privacyResolver, sensitiveValuePresenter);
         contextCoordinator = new ContextPanelCoordinator([new DemoContextProvider()]);
-        dataEntryGridHost = new DataEntryGridHost(new DataEntryGridRuntime(DemoDataEntry.CreateDefinition(), dataEntryProvider,
-                privacyResolver: privacyResolver, privacyState: privacyState, sensitiveValuePresenter: sensitiveValuePresenter),
-            localization, appearanceService, privacyResolver: privacyResolver, privacyState: privacyState,
-            sensitivePresenter: sensitiveValuePresenter);
-        multiSheetWorkspace = new(dataEntryGridHost, dataEntryProvider, localization, appearanceService, privacyState,
-            privacyResolver, sensitiveValuePresenter, companyContext.CurrentCompany, () =>
-            {
-                contextCoordinator.Invalidate();
-                _ = RefreshContextAsync();
-            });
-        importExportHost = new ImportExportWorkspaceHost(localization);
-        importExportHost.ShowProfiles(DemoImportExport.ImportProfiles, DemoImportExport.ExportProfiles);
-        dataEntryTabs = new TabControl
-        {
-            ItemsSource = new object[]
-            {
-                new TabItem { Header = "Multi-Sheet Data", Content = multiSheetWorkspace.View },
-                new TabItem { Header = "Import / Export", Content = importExportHost },
-                new TabItem { Header = "Privacy", Content = new DemoPrivacyPanel(privacyState) },
-            },
-            SelectedIndex = 0,
-        };
-        dataEntryGridHost.Changed += (_, _) =>
-        {
-            if (workspaceHost.CurrentDefinition?.WorkspaceId == "data-entry-demo")
-            {
-                RefreshRibbon();
-                RefreshActionBars();
-                _ = RefreshContextAsync();
-            }
-        };
+        dataEntryWorkspace = new Lazy<Control>(
+            () => CreateDataEntryWorkspace(privacyResolver, sensitiveValuePresenter),
+            LazyThreadSafetyMode.ExecutionAndPublication);
         workspaceHost.RegisterViewFactory(StandardTemplateCodes.Setup, _ => setupWorkspaceHost);
-        workspaceHost.RegisterViewFactory(StandardTemplateCodes.DataEntry, _ => dataEntryTabs);
+        workspaceHost.RegisterViewFactory(StandardTemplateCodes.DataEntry, _ => dataEntryWorkspace.Value);
         workspaceNavigation = new WorkspaceNavigationService(workspaces);
         workspaceNavigation.NavigationChanged += (_, args) =>
         {
@@ -255,6 +227,12 @@ public sealed partial class MainWindow : Window
             });
         actionCommands.Register("DEMO.UPDATE_AND_RESTART", (_, _) =>
             Task.FromResult(ActionCommandResult.Success("Update-ready guidance command dispatched; no updater was run.")));
+        DemoEditorActions.Register(actionCommands);
+        workspaceHost.RegisterViewFactory(StandardTemplateCodes.Dashboard, definition =>
+            definition.WorkspaceId == "editor-demo"
+                ? new DemoEditorWorkspace(localization, actionCommands, () => new(CreateActionBarContext(definition)))
+                : new StackPanel { Margin = new Thickness(18), Children =
+                    { new TextBlock { Text = definition.DisplayName, FontSize = 24 } } });
         actionDispatcher = new ActionBarCommandDispatcher(
             workspaceNavigation, new DemoActionRefreshService(RefreshFromActionBar), actionCommands);
         topActionBar = new DynamicActionBarHost(actionDispatcher, localization, iconRegistry, appearanceService);
@@ -313,6 +291,45 @@ public sealed partial class MainWindow : Window
         {
             Opened += StartSmokeRun;
         }
+    }
+
+    private Control CreateDataEntryWorkspace(IPrivacyPolicyResolver privacyResolver,
+        ISensitiveValuePresenter sensitiveValuePresenter)
+    {
+        dataEntryProvider = new DemoDataEntryProvider();
+        dataEntryGridHost = new DataEntryGridHost(new DataEntryGridRuntime(
+                DemoDataEntry.CreateDefinition(), dataEntryProvider, privacyResolver: privacyResolver,
+                privacyState: privacyState, sensitiveValuePresenter: sensitiveValuePresenter),
+            localization, appearanceService, privacyResolver: privacyResolver, privacyState: privacyState,
+            sensitivePresenter: sensitiveValuePresenter);
+        multiSheetWorkspace = new(dataEntryGridHost, dataEntryProvider, localization, appearanceService, privacyState,
+            privacyResolver, sensitiveValuePresenter, companyContext.CurrentCompany, () =>
+            {
+                contextCoordinator.Invalidate();
+                _ = RefreshContextAsync();
+            });
+        importExportHost = new ImportExportWorkspaceHost(localization);
+        importExportHost.ShowProfiles(DemoImportExport.ImportProfiles, DemoImportExport.ExportProfiles);
+        dataEntryTabs = new TabControl
+        {
+            ItemsSource = new object[]
+            {
+                new TabItem { Header = "Multi-Sheet Data", Content = multiSheetWorkspace.View },
+                new TabItem { Header = "Import / Export", Content = importExportHost },
+                new TabItem { Header = "Privacy", Content = new DemoPrivacyPanel(privacyState) },
+            },
+            SelectedIndex = 0,
+        };
+        dataEntryGridHost.Changed += (_, _) =>
+        {
+            if (workspaceHost.CurrentDefinition?.WorkspaceId == "data-entry-demo")
+            {
+                RefreshRibbon();
+                RefreshActionBars();
+                _ = RefreshContextAsync();
+            }
+        };
+        return dataEntryTabs;
     }
 
     private Control BuildDemoSurface()
