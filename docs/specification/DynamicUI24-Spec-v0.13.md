@@ -1,14 +1,14 @@
 # DynamicUI24 Specification v0.13 — Universal Editor Foundation
 
-**Document type:** Versioned DynamicUI24 specification amendment  
-**Target authoritative version:** v0.13  
-**Revision basis:** DynamicUI24 Spec v0.12 + Universal Editor Foundation  
-**Architecture authority:** `DynamicUI24-ARCHITECTURE-CHARTER.md` v0.2  
-**Charter SHA-256:** `415d53271b6681cdd9d617e4ab751e7316e03816f736df97b5425c37620420cc`  
-**Previous authoritative specification:** `docs/specification/DynamicUI24-Spec-v0.12.md`  
+**Document type:** Versioned DynamicUI24 specification amendment
+**Target authoritative version:** v0.13
+**Revision basis:** DynamicUI24 Spec v0.12 + Universal Editor Foundation
+**Architecture authority:** `DynamicUI24-ARCHITECTURE-CHARTER.md` v0.2
+**Charter SHA-256:** `415d53271b6681cdd9d617e4ab751e7316e03816f736df97b5425c37620420cc`
+**Previous authoritative specification:** `docs/specification/DynamicUI24-Spec-v0.12.md`
 **Previous v0.12 SHA-256:** `66cfdd715e4a8726f03b9ecfb06d08eac169a3e724c8d97cc455f42aa54434fb`
 
-> v0.13 is additive. All requirements and invariants of v0.12 remain authoritative unless this document explicitly extends them.  
+> v0.13 is additive. All requirements and invariants of v0.12 remain authoritative unless this document explicitly extends them.
 > v0.13 introduces a reusable, application-neutral Universal Editor Foundation so DataEntry, Report Parameters, Filters, Forms, Setup/Configuration and future DynamicUI24 surfaces do not create independent editor systems.
 
 ---
