@@ -1,3 +1,5 @@
+using DynamicUI24.Core.Authoring;
+using DynamicUI24.Core.Authorization;
 using DynamicUI24.Core.Privacy;
 using DynamicUI24.Core.Search;
 using DynamicUI24.Core.Workspaces;
@@ -29,6 +31,9 @@ internal static class DemoSearch
         var workspaceResults = workspaces.Select((x, i) => new SearchResult(x.WorkspaceId, SearchResultKind.Workspace,
             "WORKSPACES", x.DisplayName, x.TemplateCode.Value, iconKey: StandardIconKeys.Application, providerRank: i,
             workspaceId: x.WorkspaceId, navigationTarget: x.WorkspaceId, deduplicationKey: $"workspace:{x.WorkspaceId}",
+            presentationRequirement: x.WorkspaceId.Equals("ui-authoring-demo", StringComparison.OrdinalIgnoreCase)
+                ? new(CapabilityCode: StandardUiCapabilities.CanOpenUiAuthoring, UnauthorizedBehavior: UnauthorizedBehavior.Hide)
+                : null,
             canFavorite: true, canPin: true, canRecordRecent: true)).ToArray();
         SearchResult[] commands =
         [

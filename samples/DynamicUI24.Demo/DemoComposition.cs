@@ -36,6 +36,7 @@ internal sealed record DemoComposition(
             new("history-demo", "History Document Demo", StandardTemplateCodes.HistoryDocument),
             new("dashboard-demo", "Dashboard Demo", StandardTemplateCodes.Dashboard),
             new("editor-demo", "Editor Demo", StandardTemplateCodes.Dashboard),
+            new("ui-authoring-demo", "Developer UI Authoring", StandardTemplateCodes.Dashboard),
             new("signing-demo", "Signing Demo", StandardTemplateCodes.Signing),
             new("calendar-demo", "Calendar Extension Demo", CalendarTemplate.Code),
             new("unknown-demo", "Unknown Template (safe failure)", new TemplateCode("UNKNOWN")),

@@ -1,4 +1,5 @@
 using DynamicUI24.Core.Authorization;
+using DynamicUI24.Core.Authoring;
 using DynamicUI24.Core.Navigation;
 using DynamicUI24.Shared.Presentation;
 
@@ -11,6 +12,9 @@ internal static class DemoTree
         new("dashboard", "DASHBOARD", new("Tree.Dashboard"), iconKey: StandardIconKeys.Application),
         new("overview", "OVERVIEW", new("Tree.Overview"), "dashboard", StandardIconKeys.Preview, workspaceId: "dashboard-demo"),
         new("editors", "EDITORS", new("Editor Demo"), "dashboard", StandardIconKeys.Edit, 5, "editor-demo"),
+        new("ui-authoring", "UI_AUTHORING", new("Developer UI Authoring"), "dashboard", StandardIconKeys.Settings, 7, "ui-authoring-demo",
+            permissionRequirement: new(CapabilityCode: StandardUiCapabilities.CanOpenUiAuthoring,
+                UnauthorizedBehavior: UnauthorizedBehavior.Hide)),
         new("data", "DATA", new("Tree.Data"), "dashboard", StandardIconKeys.Edit, 10),
         new("entry", "ENTRY", new("Tree.Entry"), "data", StandardIconKeys.Edit, workspaceId: "data-entry-demo"),
         new("review", "REVIEW", new("Tree.Review"), "data", StandardIconKeys.Preview, 10, "history-demo"),

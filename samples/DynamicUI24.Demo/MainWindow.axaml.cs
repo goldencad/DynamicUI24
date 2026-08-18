@@ -70,7 +70,10 @@ public sealed partial class MainWindow : Window
     private readonly ContextItemPresenter contextItemPresenter;
     private readonly BreadcrumbHost breadcrumbHost;
     private readonly TreeDefinition treeDefinition = DemoTree.Create();
+    private readonly DemoProfileContext demoProfile = new();
+    private IReadOnlyList<WorkspaceDefinition> visibleWorkspaces = [];
     private readonly ComboBox workspaceSelector = new();
+    private readonly ComboBox demoProfileSelector = new();
     private readonly ComboBox themeSelector = new();
     private readonly ComboBox languageSelector = new();
     private readonly ComboBox stateSelector = new();
@@ -78,6 +81,7 @@ public sealed partial class MainWindow : Window
     private readonly ComboBox unauthorizedBehaviorSelector = new();
     private readonly ComboBox selectionSelector = new();
     private readonly TextBlock workspaceLabel = new();
+    private readonly TextBlock demoProfileLabel = new() { Text = "Demo profile" };
     private readonly TextBlock themeLabel = new();
     private readonly TextBlock languageLabel = new();
     private readonly TextBlock stateLabel = new();
@@ -87,6 +91,7 @@ public sealed partial class MainWindow : Window
     private readonly TextBlock currentCompanyValue = new();
     private readonly TextBlock profileLabel = new();
     private readonly TextBlock profileValue = new() { TextWrapping = TextWrapping.Wrap };
+    private readonly TextBlock demoProfileStateValue = new() { TextWrapping = TextWrapping.Wrap };
     private readonly TextBlock permissionLabel = new();
     private readonly TextBlock permissionValue = new() { TextWrapping = TextWrapping.Wrap };
     private readonly TextBlock capabilityLabel = new();
@@ -231,8 +236,10 @@ public sealed partial class MainWindow : Window
         workspaceHost.RegisterViewFactory(StandardTemplateCodes.Dashboard, definition =>
             definition.WorkspaceId == "editor-demo"
                 ? new DemoEditorWorkspace(localization, actionCommands, () => new(CreateActionBarContext(definition)))
-                : new StackPanel { Margin = new Thickness(18), Children =
-                    { new TextBlock { Text = definition.DisplayName, FontSize = 24 } } });
+                : definition.WorkspaceId == "ui-authoring-demo"
+                    ? new DemoUiAuthoringWorkspace(() => demoProfile.Security)
+                    : new StackPanel { Margin = new Thickness(18), Children =
+                        { new TextBlock { Text = definition.DisplayName, FontSize = 24 } } });
         actionDispatcher = new ActionBarCommandDispatcher(
             workspaceNavigation, new DemoActionRefreshService(RefreshFromActionBar), actionCommands);
         topActionBar = new DynamicActionBarHost(actionDispatcher, localization, iconRegistry, appearanceService);
@@ -267,7 +274,7 @@ public sealed partial class MainWindow : Window
             () => new SearchQuery("", SearchScope.GlobalSearch,
                 companyContext.CurrentCompany.CompanyId.Value, workspaceHost.CurrentDefinition?.WorkspaceId,
                 workspaceHost.CurrentDefinition?.TemplateCode.Value, treeHost.SelectedNodeId,
-                localization.CurrentCulture, companyScope.Snapshot.AuthorizationContext,
+                localization.CurrentCulture, CurrentAuthorization,
                 new PrivacyResolutionContext(true, null, privacyState.RequestedMode,
                     new MandatoryPrivacyPolicy(), companyContext.CurrentCompany.CompanyId,
                     workspaceHost.CurrentDefinition?.WorkspaceId, Generation: privacyState.Generation)),
@@ -278,8 +285,10 @@ public sealed partial class MainWindow : Window
 
         ConfigureSelectors();
         ConfigureCompanyProof();
+        demoProfile.Changed += async (_, _) => await ApplyDemoProfileAsync();
         localization.CultureChanged += (_, _) => RefreshLocalizedLabels();
         RefreshLocalizedLabels();
+        RefreshWorkspaceSelector();
         workspaceSelector.SelectedIndex = 0;
         stateSelector.SelectedIndex = 0;
 
@@ -336,15 +345,18 @@ public sealed partial class MainWindow : Window
     {
         var selectors = new Grid
         {
-            ColumnDefinitions = new ColumnDefinitions("2*,*,*,*,*"),
+            ColumnDefinitions = new ColumnDefinitions("2*,*,*"),
+            RowDefinitions = new RowDefinitions("Auto,Auto"),
             ColumnSpacing = 12,
+            RowSpacing = 12,
             Children =
             {
                 Field(workspaceLabel, workspaceSelector, 0),
-                Field(themeLabel, themeSelector, 1),
-                Field(languageLabel, languageSelector, 2),
-                Field(stateLabel, stateSelector, 3),
-                Field(selectionLabel, selectionSelector, 4),
+                Field(demoProfileLabel, demoProfileSelector, 1),
+                Field(themeLabel, themeSelector, 2),
+                Field(languageLabel, languageSelector, 0, 1),
+                Field(stateLabel, stateSelector, 1, 1),
+                Field(selectionLabel, selectionSelector, 2, 1),
             },
         };
 
@@ -366,11 +378,12 @@ public sealed partial class MainWindow : Window
         return new ScrollViewer { Content = content };
     }
 
-    private static Control Field(TextBlock label, ComboBox selector, int column)
+    private static Control Field(TextBlock label, ComboBox selector, int column, int row = 0)
     {
         selector.MinWidth = 120;
         var panel = new StackPanel { Spacing = 5, Children = { label, selector } };
         Grid.SetColumn(panel, column);
+        Grid.SetRow(panel, row);
         return panel;
     }
 
@@ -446,7 +459,7 @@ public sealed partial class MainWindow : Window
             Spacing = 4,
             Children = { requirementLabel, resolutionLabel, resolutionValue },
         };
-        foreach (var text in new[] { companyStateValue, permissionValue, capabilityValue, resolutionValue })
+        foreach (var text in new[] { companyStateValue, permissionValue, capabilityValue, resolutionValue, demoProfileStateValue })
         {
             text.Bind(TextBlock.ForegroundProperty, text.GetResourceObservable("DuiTextMutedBrush"));
         }
@@ -454,14 +467,20 @@ public sealed partial class MainWindow : Window
         return new StackPanel
         {
             Spacing = 12,
-            Children = { selectors, identity, profile, access, requirement },
+            Children = { selectors, identity, profile, demoProfileStateValue, access, requirement },
         };
     }
 
     private void ConfigureSelectors()
     {
-        workspaceSelector.ItemsSource = workspaces.Select(workspace => workspace.DisplayName).ToArray();
         workspaceSelector.SelectionChanged += WorkspaceSelectionChanged;
+        demoProfileSelector.ItemsSource = Enum.GetValues<DemoAuthoringProfile>();
+        demoProfileSelector.SelectedItem = DemoAuthoringProfile.Viewer;
+        demoProfileStateValue.Text = "Viewer · field ReadOnly · feature Hidden · Export denied";
+        demoProfileSelector.SelectionChanged += (_, _) =>
+        {
+            if (demoProfileSelector.SelectedItem is DemoAuthoringProfile profile) demoProfile.Select(profile);
+        };
         themeSelector.ItemsSource = Enum.GetValues<ThemeMode>();
         themeSelector.SelectedItem = ThemeMode.System;
         themeSelector.SelectionChanged += (_, _) =>
@@ -520,6 +539,41 @@ public sealed partial class MainWindow : Window
         unauthorizedBehaviorSelector.SelectionChanged += (_, _) => RefreshRequirementResolution();
     }
 
+    private EffectiveAuthorizationContext CurrentAuthorization => demoProfile.Merge(
+        companyScope.Snapshot.AuthorizationContext, companyContext.CurrentCompany.CompanyId);
+
+    private void RefreshWorkspaceSelector(string? preferredWorkspaceId = null)
+    {
+        preferredWorkspaceId ??= workspaceHost.CurrentDefinition?.WorkspaceId;
+        var resolution = demoProfile.ResolveWorkspaces(workspaces, preferredWorkspaceId);
+        visibleWorkspaces = resolution.VisibleWorkspaces;
+        workspaceSelector.ItemsSource = visibleWorkspaces.Select(workspace => workspace.DisplayName).ToArray();
+        var preferredIndex = resolution.ActiveWorkspace is null ? -1 : visibleWorkspaces.ToList().FindIndex(x =>
+            x.WorkspaceId.Equals(resolution.ActiveWorkspace.WorkspaceId, StringComparison.OrdinalIgnoreCase));
+        workspaceSelector.SelectedIndex = preferredIndex >= 0 ? preferredIndex : visibleWorkspaces.Count > 0 ? 0 : -1;
+    }
+
+    private async Task ApplyDemoProfileAsync()
+    {
+        var requestedGeneration = demoProfile.Generation;
+        var authoringAllowed = await demoProfile.CanOpenAuthoringAsync(companyContext.CurrentCompany.CompanyId);
+        if (requestedGeneration != demoProfile.Generation) return;
+        demoProfileStateValue.Text = demoProfile.CurrentProfile switch
+        {
+            DemoAuthoringProfile.Viewer => "Viewer · field ReadOnly · feature Hidden · Export denied",
+            DemoAuthoringProfile.Editor => "Editor · field Editable · normal runtime enabled · Developer Mode hidden",
+            _ => "Administrator · Developer Mode visible · Publish enabled · Export allowed",
+        };
+        var active = workspaceHost.CurrentDefinition;
+        RefreshWorkspaceSelector(authoringAllowed ? active?.WorkspaceId : null);
+        InvalidateSearch();
+        RefreshTree(companyScope.Snapshot);
+        RefreshRibbon();
+        RefreshActionBars();
+        if (!authoringAllowed && active?.WorkspaceId.Equals("ui-authoring-demo", StringComparison.OrdinalIgnoreCase) == true)
+            shellPresentation.StatusMessage = "Developer UI Authoring closed: Demo profile is not authorized.";
+    }
+
     private void CompanyScopeSnapshotChanged(object? sender, CompanyScopeSnapshot snapshot) =>
         Dispatcher.UIThread.Post(() => ApplyCompanySnapshot(snapshot));
 
@@ -535,17 +589,13 @@ public sealed partial class MainWindow : Window
             ? "—"
             : $"{profile.LegalName}\nTax Code: {profile.TaxCode}\n{profile.Address}\n{profile.Email} · {profile.Phone}\n" +
               string.Join(" · ", profile.AdditionalFields.Select(pair => $"{pair.Key}: {pair.Value}"));
-        permissionValue.Text = snapshot.AuthorizationContext is null
-            ? "—"
-            : string.Join(", ", snapshot.AuthorizationContext.PermissionCodes.OrderBy(code => code.Value));
-        capabilityValue.Text = snapshot.AuthorizationContext is null
-            ? "—"
-            : string.Join(", ", snapshot.AuthorizationContext.CapabilityCodes.OrderBy(code => code.Value));
+        permissionValue.Text = string.Join(", ", CurrentAuthorization.PermissionCodes.OrderBy(code => code.Value));
+        capabilityValue.Text = string.Join(", ", CurrentAuthorization.CapabilityCodes.OrderBy(code => code.Value));
         RefreshRequirementResolution();
         RefreshRibbon();
         RefreshActionBars();
         RefreshTree(snapshot);
-        setupWorkspaceHost.UpdateContext(snapshot.Company, snapshot.AuthorizationContext);
+        setupWorkspaceHost.UpdateContext(snapshot.Company, CurrentAuthorization);
         if (workspaceHost.CurrentDefinition?.WorkspaceId == "data-entry-demo")
             _ = LoadDataEntryAsync(snapshot.Company, snapshot.AuthorizationContext);
         _ = RefreshContextAsync();
@@ -566,12 +616,12 @@ public sealed partial class MainWindow : Window
     {
         InvalidateSearch();
         var index = workspaceSelector.SelectedIndex;
-        if (index < 0 || index >= workspaces.Count)
+        if (index < 0 || index >= visibleWorkspaces.Count)
         {
             return;
         }
 
-        var definition = workspaces[index];
+        var definition = visibleWorkspaces[index];
         if (workspaceHost.CurrentDefinition?.WorkspaceId is { } previousWorkspace &&
             !previousWorkspace.Equals(definition.WorkspaceId, StringComparison.OrdinalIgnoreCase))
             privacyState.InvalidateContext(workspaceId: definition.WorkspaceId);
@@ -641,7 +691,7 @@ public sealed partial class MainWindow : Window
         companyContext.CurrentCompany,
         workspace,
         workspace.TemplateCode,
-        companyScope.Snapshot.AuthorizationContext,
+        CurrentAuthorization,
         new RibbonSelectionContext(CurrentSelectionCount(workspace)));
 
     private void RefreshRibbon()
@@ -654,7 +704,7 @@ public sealed partial class MainWindow : Window
         companyContext.CurrentCompany,
         workspace,
         workspace.TemplateCode,
-        companyScope.Snapshot.AuthorizationContext,
+        CurrentAuthorization,
         new ActionSelectionContext(CurrentSelectionCount(workspace)),
         shellPresentation.State,
         CreateActionBarStatus(workspace),
@@ -711,7 +761,7 @@ public sealed partial class MainWindow : Window
     {
         var workspaceId = workspaceHost.CurrentDefinition?.WorkspaceId;
         await notificationCoordinator.RefreshAsync(companyContext.CurrentCompany, workspaceId,
-            companyScope.Snapshot.AuthorizationContext);
+            CurrentAuthorization);
     }
 
     private void ShowActionBar(DynamicActionBarHost host, ActionBarDefinition? definition,
@@ -726,7 +776,7 @@ public sealed partial class MainWindow : Window
 
     private void NavigateFromActionBar(WorkspaceDefinition workspace)
     {
-        var index = workspaces.ToList().FindIndex(x => x.WorkspaceId.Equals(workspace.WorkspaceId, StringComparison.OrdinalIgnoreCase));
+        var index = visibleWorkspaces.ToList().FindIndex(x => x.WorkspaceId.Equals(workspace.WorkspaceId, StringComparison.OrdinalIgnoreCase));
         if (index >= 0) workspaceSelector.SelectedIndex = index;
     }
 
@@ -788,14 +838,14 @@ public sealed partial class MainWindow : Window
 
     private void NavigateFromRibbon(WorkspaceDefinition workspace)
     {
-        var index = workspaces.ToList().FindIndex(x => x.WorkspaceId == workspace.WorkspaceId);
+        var index = visibleWorkspaces.ToList().FindIndex(x => x.WorkspaceId == workspace.WorkspaceId);
         if (index >= 0) workspaceSelector.SelectedIndex = index;
     }
 
     private void NavigateTreeNode(TreeNodeDefinition node)
     {
         if (node.WorkspaceId is null) return;
-        var index = workspaces.ToList().FindIndex(x => x.WorkspaceId.Equals(node.WorkspaceId, StringComparison.OrdinalIgnoreCase));
+        var index = visibleWorkspaces.ToList().FindIndex(x => x.WorkspaceId.Equals(node.WorkspaceId, StringComparison.OrdinalIgnoreCase));
         if (index >= 0) workspaceSelector.SelectedIndex = index;
         else shellPresentation.StatusMessage = "Tree: WORKSPACE_UNKNOWN";
     }
@@ -804,7 +854,7 @@ public sealed partial class MainWindow : Window
     {
         var previouslySelectedNodeId = treeHost.SelectedNodeId;
         var tree = treeResolver.Resolve(treeDefinition,
-            new TreeResolutionContext(snapshot.Company, snapshot.AuthorizationContext), workspaces);
+            new TreeResolutionContext(snapshot.Company, CurrentAuthorization), visibleWorkspaces);
         treeHost.Show(tree);
         var current = workspaceHost.CurrentDefinition;
         if (current is not null && TreeContainsWorkspace(tree.RootNodes, current.WorkspaceId))
@@ -1150,7 +1200,7 @@ public sealed partial class MainWindow : Window
     private async Task RunActionBarSmokeAsync()
     {
         stateSelector.SelectedIndex = 0;
-        workspaceSelector.SelectedIndex = workspaces.ToList().FindIndex(x => x.WorkspaceId == "dashboard-demo");
+        workspaceSelector.SelectedIndex = visibleWorkspaces.ToList().FindIndex(x => x.WorkspaceId == "dashboard-demo");
         RefreshActionBars();
         if (!topActionBar.IsVisible || !bottomActionBar.IsVisible ||
             topActionBar.ResolvedActionBar?.Definition.Position != ActionBarPosition.Top ||
@@ -1200,7 +1250,7 @@ public sealed partial class MainWindow : Window
             throw new InvalidOperationException("Unavailable Company authorization did not fail closed for Action Bars.");
         Console.WriteLine("SMOKE ACTION_COMPANY_RERESOLUTION: A=ENABLED B=DISABLED C=FAIL_CLOSED");
 
-        workspaceSelector.SelectedIndex = workspaces.ToList().FindIndex(x => x.WorkspaceId == "signing-demo");
+        workspaceSelector.SelectedIndex = visibleWorkspaces.ToList().FindIndex(x => x.WorkspaceId == "signing-demo");
         RefreshActionBars();
         var unknown = await bottomActionBar.ExecuteActionAsync("UNKNOWN_COMMAND");
         if (unknown.Status != ActionCommandResultStatus.Unavailable ||
@@ -1227,7 +1277,7 @@ public sealed partial class MainWindow : Window
     private async Task RunDataEntrySmokeAsync()
     {
         await companyScope.SwitchCompanyAsync(DemoCompanyData.CompanyAId);
-        workspaceSelector.SelectedIndex = workspaces.ToList().FindIndex(x => x.WorkspaceId == "data-entry-demo");
+        workspaceSelector.SelectedIndex = visibleWorkspaces.ToList().FindIndex(x => x.WorkspaceId == "data-entry-demo");
         await LoadDataEntryAsync(companyContext.CurrentCompany, companyScope.Snapshot.AuthorizationContext);
         var runtime = dataEntryGridHost.Runtime;
         dataEntryTabs.SelectedIndex = 0;
@@ -1441,7 +1491,7 @@ public sealed partial class MainWindow : Window
 
     private async Task RunContextSmokeAsync()
     {
-        workspaceSelector.SelectedIndex = workspaces.ToList().FindIndex(x => x.WorkspaceId == "data-entry-demo");
+        workspaceSelector.SelectedIndex = visibleWorkspaces.ToList().FindIndex(x => x.WorkspaceId == "data-entry-demo");
         await dataEntryGridHost.RequestViewportAsync(90_000);
         var runtime = dataEntryGridHost.Runtime;
         var first = runtime.Rows[0];
@@ -1468,7 +1518,7 @@ public sealed partial class MainWindow : Window
     private async Task RunImportExportSmokeAsync()
     {
         await companyScope.SwitchCompanyAsync(DemoCompanyData.CompanyAId);
-        workspaceSelector.SelectedIndex = workspaces.ToList().FindIndex(x => x.WorkspaceId == "data-entry-demo");
+        workspaceSelector.SelectedIndex = visibleWorkspaces.ToList().FindIndex(x => x.WorkspaceId == "data-entry-demo");
         dataEntryTabs.SelectedIndex = 1;
         var registry = DemoImportExport.CreateRegistry();
         var parserCodes = registry.Parsers.Select(x => x.ParserCode).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -1561,7 +1611,7 @@ public sealed partial class MainWindow : Window
     private async Task RunNotificationSmokeAsync()
     {
         await companyScope.SwitchCompanyAsync(DemoCompanyData.CompanyAId);
-        workspaceSelector.SelectedIndex = workspaces.ToList().FindIndex(x => x.WorkspaceId == "data-entry-demo");
+        workspaceSelector.SelectedIndex = visibleWorkspaces.ToList().FindIndex(x => x.WorkspaceId == "data-entry-demo");
         var model = await notificationCoordinator.RefreshAsync(companyContext.CurrentCompany, "data-entry-demo",
             companyScope.Snapshot.AuthorizationContext);
         var update = AssertSingle("DEMO.UPDATE_READY", model);
@@ -1643,7 +1693,7 @@ public sealed partial class MainWindow : Window
     {
         await companyScope.SwitchCompanyAsync(DemoCompanyData.CompanyAId);
         setupWorkspaceHost.UpdateContext(companyScope.Snapshot.Company, companyScope.Snapshot.AuthorizationContext);
-        var setupIndex = workspaces.ToList().FindIndex(x => x.WorkspaceId == "setup-demo");
+        var setupIndex = visibleWorkspaces.ToList().FindIndex(x => x.WorkspaceId == "setup-demo");
         workspaceSelector.SelectedIndex = setupIndex;
         if (workspaceHost.CurrentDefinition?.WorkspaceId != "setup-demo" || workspaceHost.Content != setupWorkspaceHost)
             workspaceHost.ShowWorkspace(workspaces[setupIndex]);
