@@ -1,0 +1,3 @@
+# Lightweight composer
+
+The composer owns definition and transient draft/attachment/validation/execution presentation state. It is not Universal Editor, rich text, AI runtime, or persistence. Avalonia uses a native multiline `TextBox`, preserving OS Unicode, IME, caret, selection, clipboard, and shortcuts. Submit uses an existing semantic command through `IComposerCommandAdapter`; attachments reuse Resource Chips. Mention/action providers return bounded results and action picking reuses existing commands. Raw drafts are never preferences. Test with `dotnet test --filter ModernWorkspaceFoundationTests`. Common failures are custom text handling, unbounded lookup, eager adjuncts, or draft telemetry/P1 leakage.

@@ -1,0 +1,3 @@
+# Resource chips
+
+Resource chips own compact presentation metadata keyed by `ResourceKind + SemanticResourceId`; attachments specialize the same model. They do not own storage, upload, scanning, persistence, or a command registry. Capabilities describe possible presentation actions; existing command and Task 10H authorization decide availability. Labels/status/accessibility must be P1-safe. Collections and previews stay bounded/lazy. Test with `dotnet test --filter ModernWorkspaceFoundationTests`. Common failures are using labels as identity, embedding raw data, or allowing Remove without authorization.

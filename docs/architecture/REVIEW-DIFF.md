@@ -1,0 +1,3 @@
+# Review and diff
+
+The foundation owns compare identity and safe structured/text presentation spans. Applications own revision acquisition, authoritative merge/apply, persistence, and extended classification. Fields use `FieldCode`, never localized labels. Accept/Reject/Apply/Restore dispatch through `IReviewCommandAdapter` and existing command authorization. Historical values remain subject to current P1 policy. Acquisition and rendering must be bounded and lazy. Test with `dotnet test --filter ModernWorkspaceFoundationTests`. Common failures are leaking removed values, treating line numbers as identity, or implementing business merge in Core.

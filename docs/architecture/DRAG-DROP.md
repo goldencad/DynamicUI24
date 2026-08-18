@@ -1,0 +1,3 @@
+# Semantic drag and drop
+
+The foundation owns semantic payload and fail-closed negotiation, not mutation or file storage. Payloads contain resource kind, semantic IDs, safe display metadata, and allowed operations. Targets intersect kind/operation with authorization, capability, and P1 policy. Drag-enter only negotiates; an application adapter performs a committed drop. OS file handles flow to `IOsFileDropAdapter` and never preferences. Test with `dotnet test --filter ModernWorkspaceFoundationTests`. Common failures are control-reference payloads, mutation during hover, trusting filenames, or silently choosing storage.

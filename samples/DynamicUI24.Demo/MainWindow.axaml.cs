@@ -23,6 +23,7 @@ using DynamicUI24.Core.Privacy;
 using DynamicUI24.Core.Search;
 using DynamicUI24.Core.Context;
 using DynamicUI24.Core.Sheets;
+using DynamicUI24.Core.ModernWorkspace;
 using DynamicUI24.Shared.Presentation;
 
 namespace DynamicUI24.Demo;
@@ -37,6 +38,7 @@ public sealed partial class MainWindow : Window
     private readonly AppearancePreferenceService appearanceService;
     private readonly SemanticIconRegistry iconRegistry;
     private readonly DynamicUI24.Avalonia.DynamicWorkspaceHost workspaceHost;
+    private readonly WorkspacePaneSessionStateStore paneSessionState = new();
     private readonly SetupWorkspaceHost setupWorkspaceHost;
     private DemoDataEntryProvider dataEntryProvider = null!;
     private DataEntryGridHost dataEntryGridHost = null!;
@@ -238,6 +240,8 @@ public sealed partial class MainWindow : Window
                 ? new DemoEditorWorkspace(localization, actionCommands, () => new(CreateActionBarContext(definition)))
                 : definition.WorkspaceId == "ui-authoring-demo"
                     ? new DemoUiAuthoringWorkspace(() => demoProfile.Security)
+                    : definition.WorkspaceId == "modern-workspace-demo"
+                        ? new DemoModernWorkspace(paneSessionState)
                     : new StackPanel { Margin = new Thickness(18), Children =
                         { new TextBlock { Text = definition.DisplayName, FontSize = 24 } } });
         actionDispatcher = new ActionBarCommandDispatcher(
