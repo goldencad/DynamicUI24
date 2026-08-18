@@ -1,5 +1,8 @@
 # DynamicUI24 Architecture Charter
 
+**Charter version:** 0.2
+**Revision basis:** v0.1 + cross-platform interaction, native-input, edit-boundary and AI-governance invariants
+
 **Document type:** Architecture Charter / Project Constitution
 **Project:** DynamicUI24
 **Status:** Governing architecture principles
@@ -351,4 +354,220 @@ Before adding a feature ask:
 
 > DynamicUI24 coordinates presentation. It does not steal ownership from authoritative business, calculation, signing, storage or security engines.
 
-**End of DynamicUI24 Architecture Charter**
+## 50. Unicode-first and native input
+
+DynamicUI24 text input is Unicode-first and OS-native.
+
+All user-editable text surfaces, including DataEntry editors, forms, setup/configuration fields, report parameters, Search, Find, Filter, metadata editors, comments and future reusable text-entry surfaces, must preserve Unicode text end-to-end.
+
+The user's operating-system input method determines how text is entered.
+
+DynamicUI24 must not implement language-specific keyboard, transliteration or composition engines.
+
+This includes, but is not limited to:
+- Vietnamese input methods
+- Chinese IME
+- Japanese IME
+- Korean IME
+- Arabic input
+- Indic input
+- dead-key/accent composition
+
+Language support is achieved through Unicode plus native OS input, not through language-specific input implementations inside DynamicUI24.
+
+## 51. Native editor owns active text interaction
+
+When a native text editor owns keyboard focus, the editor and operating system own the active text-input session.
+
+This includes:
+- Unicode input
+- IME composition
+- pre-edit/candidate state
+- dead keys
+- caret movement
+- text selection
+- Backspace/Delete
+- native clipboard shortcuts
+- native editing shortcuts
+- platform-standard navigation inside the editor
+
+Parent Grid, Workspace, Shell or command handlers must not intercept these events in a way that breaks native text editing.
+
+Global commands must yield appropriately while an active editor owns the corresponding interaction.
+
+## 52. Composition state is presentation state
+
+IME composition/pre-edit state is transient presentation state. It is not authoritative business data.
+
+Intermediate composition events must not be treated as completed business input merely because a `TextChanged`-style event occurred.
+
+```text
+IME / pre-edit candidate
+        ↓
+native editor presentation
+        ↓
+completed editor value
+        ↓
+semantic edit candidate
+        ↓
+validation / commit
+        ↓
+runtime pending state
+```
+
+Core contracts should receive ordinary completed Unicode values rather than language-specific composition mechanics.
+
+DynamicUI24 must not normalize, transliterate, strip accents or convert Unicode text into legacy code pages unless an explicit application/provider contract requires a separate transformation.
+
+## 53. Font is presentation, not language semantics
+
+Font selection and Unicode glyph fallback belong to presentation/theme/platform policy.
+
+Core semantic contracts must not depend on a particular font.
+
+Do not hard-code language-specific fonts into Core merely to support text input.
+
+A presentation layer may select appropriate system/application fonts and fallback fonts while preserving the underlying Unicode value unchanged.
+
+Changing font, culture, theme or platform must not change business text.
+
+## 54. Edit commit, workspace save and persistence are distinct
+
+Editing boundaries must be explicit.
+
+```text
+CONTROL / CELL EDIT COMMIT
+!=
+WORKSPACE / GRID SAVE
+!=
+PROVIDER PERSISTENCE
+```
+
+A control-level commit may validate and stage a semantic pending value without immediately persisting the entire business object or dataset.
+
+Workspace-level Save coordinates the application's intended save boundary.
+
+Provider/application layers own authoritative persistence.
+
+Presentation-only interaction must not mark business data dirty.
+
+Opening an editor, moving a caret, selecting text, opening expanded view, changing focus or cancelling an unchanged edit must not itself persist business data.
+
+Subsystems may define different save policies, but they must not silently collapse these boundaries where doing so changes application semantics.
+
+## 55. Active interaction owns a stable presentation session
+
+Rendered controls are disposable presentation, but an active physical interaction must have a stable presentation session for its lifetime.
+
+Do not unnecessarily destroy/rebuild the visual presenter that currently owns:
+- pointer capture
+- drag/range selection
+- native text editing
+- IME composition
+- menu interaction
+- focus/caret
+- another stateful native gesture
+
+Prefer updating existing materialized presentation when semantic state changes during an active interaction.
+
+After the interaction completes, normal rematerialization/rebuild policy may resume.
+
+Semantic state remains authoritative; visual-tree stability is an interaction correctness requirement, not a new business-state model.
+
+## 56. Deferred UI actions retain semantic identity
+
+Callbacks, deferred handlers, menus, asynchronous continuations and physical gestures must retain or re-resolve semantic identity.
+
+Do not treat captured visual indexes, control positions or localized labels as durable identity.
+
+Examples:
+
+```text
+Column action    -> VariableCode or another semantic ColumnCode
+Row action       -> RowKey
+Sheet action     -> SheetCode
+Workspace action -> WorkspaceCode
+```
+
+A visual index may be used transiently for rendering/hit testing, but semantic identity must be resolved before authoritative state mutation.
+
+Reorder, virtualization and rematerialization must not cause a deferred action to operate on the wrong semantic object.
+
+## 57. Honest interaction fallback
+
+Cross-platform consistency means consistent capability and semantics, not forcing an unreliable physical gesture onto every platform.
+
+If a gesture or native interaction cannot be made sufficiently reliable, discoverable and maintainable across supported platforms, DynamicUI24 may use a deterministic alternative interaction.
+
+The fallback must:
+- preserve semantic behavior
+- remain discoverable
+- report capability honestly
+- avoid misleading affordances
+- preserve accessibility
+- preserve keyboard access where applicable
+
+If physical drag resizing is unsupported, for example, do not leave resize cursors, invisible drag regions, grips or splitters that imply support.
+
+A reliable explicit command/menu/preset interaction is preferable to a nominally supported but unstable gesture.
+
+## 58. Automated tests do not prove physical UX
+
+Automated tests can prove contracts, state transitions, boundedness, architecture and many event paths.
+
+They do not by themselves prove physical user experience involving:
+- pointer gestures
+- native focus
+- caret behavior
+- IME/composition
+- popup placement
+- native menus
+- platform-specific keyboard routing
+- perceived interaction continuity
+
+```text
+AUTOMATED PASS != PHYSICAL PASS
+```
+
+Automation may establish:
+
+```text
+READY FOR PHYSICAL ACCEPTANCE
+```
+
+Only appropriate real-platform evidence may establish physical acceptance where the task requires it.
+
+Do not weaken a physical acceptance requirement merely because an automation harness cannot synthesize the interaction reliably.
+
+## 59. AI-assisted implementation preserves task-level coherence
+
+AI/Codex work must optimize for coherent subsystem completion, not a sequence of uncoordinated local patches.
+
+Before implementation, gather the known task requirements into one coherent task packet where practical:
+- architecture boundaries
+- semantic identities
+- required UX
+- provider ownership
+- privacy/security
+- performance/boundedness
+- cross-platform behavior
+- tests
+- physical acceptance
+- Git/CI closure
+
+During a task, collect non-blocking findings and address related issues as a coherent correction set rather than repeatedly redesigning the same subsystem.
+
+Interrupt immediately when necessary for P0 defects such as:
+- crash
+- data corruption
+- privacy/security leak
+- architectural boundary violation
+- blocker preventing meaningful continuation
+
+Once a task has passed acceptance, been committed, pushed and closed through its required CI gate, substantial later issues should normally be handled through a separate maintenance task rather than silently reopening historical feature scope.
+
+AI may propose implementation.
+AI may verify automated evidence.
+AI must not claim physical acceptance that has not been physically established.
+
+**End of DynamicUI24 Architecture Charter v0.2**
