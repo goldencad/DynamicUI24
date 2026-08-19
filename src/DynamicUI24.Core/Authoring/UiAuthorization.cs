@@ -32,6 +32,13 @@ public static class StandardUiCapabilities
     public static readonly CapabilityCode CanPublishUiDefinition = new("CAN_PUBLISH_UI_DEFINITION");
     public static readonly CapabilityCode CanRollbackUiDefinition = new("CAN_ROLLBACK_UI_DEFINITION");
     public static readonly CapabilityCode CanEditAuthorizationBindings = new("CAN_EDIT_AUTHORIZATION_BINDINGS");
+    public static readonly CapabilityCode CanViewDesignSystem = new("CAN_VIEW_DESIGN_SYSTEM");
+    public static readonly CapabilityCode CanEditThemeDraft = new("CAN_EDIT_THEME_DRAFT");
+    public static readonly CapabilityCode CanPreviewTheme = new("CAN_PREVIEW_THEME");
+    public static readonly CapabilityCode CanPublishTheme = new("CAN_PUBLISH_THEME");
+    public static readonly CapabilityCode CanActivateTheme = new("CAN_ACTIVATE_THEME");
+    public static readonly CapabilityCode CanRollbackTheme = new("CAN_ROLLBACK_THEME");
+    public static readonly CapabilityCode CanMutateDesignSystemStandard = new("CAN_MUTATE_DESIGN_SYSTEM_STANDARD");
 }
 
 public sealed record UserSecurityContext(string SubjectCode, long Generation,

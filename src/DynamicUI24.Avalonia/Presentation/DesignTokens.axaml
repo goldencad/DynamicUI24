@@ -10,6 +10,28 @@
   <x:Double x:Key="DuiTypographyLabel">13</x:Double>
   <x:Double x:Key="DuiTypographyBody">14</x:Double>
   <x:Double x:Key="DuiTypographyTitle">16</x:Double>
+  <!-- v0.16 semantic aliases. Physical values remain here in the theme layer. -->
+  <x:String x:Key="DuiFontFamilyUi">system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif</x:String>
+  <x:String x:Key="DuiFontFamilyCode">ui-monospace, "SFMono-Regular", Consolas, monospace</x:String>
+  <x:Double x:Key="DuiSpace2Xs">2</x:Double>
+  <x:Double x:Key="DuiSpaceXs">4</x:Double>
+  <x:Double x:Key="DuiSpaceS">8</x:Double>
+  <x:Double x:Key="DuiSpaceM">12</x:Double>
+  <x:Double x:Key="DuiSpaceL">16</x:Double>
+  <x:Double x:Key="DuiSpaceXl">24</x:Double>
+  <x:Double x:Key="DuiSpace2Xl">32</x:Double>
+  <x:Double x:Key="DuiControlHeightCompact">28</x:Double>
+  <x:Double x:Key="DuiControlHeightStandard">34</x:Double>
+  <x:Double x:Key="DuiControlHeightLarge">40</x:Double>
+  <x:Double x:Key="DuiIconSizeSmall">12</x:Double>
+  <x:Double x:Key="DuiIconSizeStandard">16</x:Double>
+  <x:Double x:Key="DuiIconSizeLarge">20</x:Double>
+  <x:Double x:Key="DuiHitTargetMinimum">32</x:Double>
+  <x:Double x:Key="DuiFormReadableWidth">760</x:Double>
+  <x:Double x:Key="DuiMotionNone">0</x:Double>
+  <x:Double x:Key="DuiMotionFast">100</x:Double>
+  <x:Double x:Key="DuiMotionStandard">160</x:Double>
+  <x:Double x:Key="DuiMotionEmphasized">240</x:Double>
   <ResourceDictionary.ThemeDictionaries>
     <ResourceDictionary x:Key="Light">
       <SolidColorBrush x:Key="DuiSurfaceBrush" Color="#FFF8FAFC" />
@@ -32,6 +54,17 @@
       <SolidColorBrush x:Key="DuiGridBrush" Color="#FFE4E7EC" />
       <SolidColorBrush x:Key="DuiReadOnlyBrush" Color="#FFF2F4F7" />
       <SolidColorBrush x:Key="DuiCalculatedBrush" Color="#FFF4EBFF" />
+      <SolidColorBrush x:Key="DuiSurfaceWindowBrush" Color="#FFF8FAFC" />
+      <SolidColorBrush x:Key="DuiSurfaceWorkspaceBrush" Color="#FFF8FAFC" />
+      <SolidColorBrush x:Key="DuiSurfacePanelBrush" Color="#FFFFFFFF" />
+      <SolidColorBrush x:Key="DuiSurfaceEditorBrush" Color="#FFFFFFFF" />
+      <SolidColorBrush x:Key="DuiTextPrimaryBrush" Color="#FF172033" />
+      <SolidColorBrush x:Key="DuiTextSecondaryBrush" Color="#FF667085" />
+      <SolidColorBrush x:Key="DuiBorderDefaultBrush" Color="#FFD0D5DD" />
+      <SolidColorBrush x:Key="DuiBorderSubtleBrush" Color="#FFE4E7EC" />
+      <SolidColorBrush x:Key="DuiAccentPrimaryBrush" Color="#FF2563EB" />
+      <SolidColorBrush x:Key="DuiAccentSecondaryBrush" Color="#FF175CD3" />
+      <SolidColorBrush x:Key="DuiOverlayBackdropBrush" Color="#66000000" />
       <SolidColorBrush x:Key="Privacy.Mask.Foreground" Color="#FF475467" />
       <SolidColorBrush x:Key="Privacy.Mask.Background" Color="#FFF2F4F7" />
       <SolidColorBrush x:Key="Privacy.Hidden.Foreground" Color="#FF667085" />
@@ -60,6 +93,17 @@
       <SolidColorBrush x:Key="DuiGridBrush" Color="#FF344054" />
       <SolidColorBrush x:Key="DuiReadOnlyBrush" Color="#FF202939" />
       <SolidColorBrush x:Key="DuiCalculatedBrush" Color="#FF3B2A56" />
+      <SolidColorBrush x:Key="DuiSurfaceWindowBrush" Color="#FF101828" />
+      <SolidColorBrush x:Key="DuiSurfaceWorkspaceBrush" Color="#FF101828" />
+      <SolidColorBrush x:Key="DuiSurfacePanelBrush" Color="#FF1D2939" />
+      <SolidColorBrush x:Key="DuiSurfaceEditorBrush" Color="#FF1D2939" />
+      <SolidColorBrush x:Key="DuiTextPrimaryBrush" Color="#FFF2F4F7" />
+      <SolidColorBrush x:Key="DuiTextSecondaryBrush" Color="#FF98A2B3" />
+      <SolidColorBrush x:Key="DuiBorderDefaultBrush" Color="#FF475467" />
+      <SolidColorBrush x:Key="DuiBorderSubtleBrush" Color="#FF344054" />
+      <SolidColorBrush x:Key="DuiAccentPrimaryBrush" Color="#FF84ADFF" />
+      <SolidColorBrush x:Key="DuiAccentSecondaryBrush" Color="#FF84CAFF" />
+      <SolidColorBrush x:Key="DuiOverlayBackdropBrush" Color="#66000000" />
       <SolidColorBrush x:Key="Privacy.Mask.Foreground" Color="#FFD0D5DD" />
       <SolidColorBrush x:Key="Privacy.Mask.Background" Color="#FF202939" />
       <SolidColorBrush x:Key="Privacy.Hidden.Foreground" Color="#FF98A2B3" />

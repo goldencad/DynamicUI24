@@ -57,7 +57,7 @@
         <ContentControl x:Name="ApplicationMenuPresenter" />
       </Border>
       <Border Grid.Row="0" Grid.RowSpan="4" x:Name="SearchOverlay" IsVisible="False"
-              Background="#66000000" PointerPressed="SearchBackdropPressed">
+              Background="{DynamicResource DuiOverlayBackdropBrush}" PointerPressed="SearchBackdropPressed">
         <ContentControl x:Name="SearchPresenter" HorizontalAlignment="Center" VerticalAlignment="Top"
                         Margin="24,72,24,24" PointerPressed="SearchContentPressed" />
       </Border>

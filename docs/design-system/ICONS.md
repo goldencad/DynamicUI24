@@ -1,5 +1,7 @@
 # Icon system
 
+Normative authority: [DynamicUI24 Specification v0.16 §15](../specification/DynamicUI24-Spec-v0.16.md#15-icons). Applications use `SemanticIcon`/icon keys and semantic sizes; approved icons must not be replaced by application-local geometry or sizing. Theme may evolve treatment without changing identity.
+
 `IconKey` is the only icon identity allowed in reusable metadata. `IIconRegistry` maps it to a generic `IconSource`; controls do not receive asset paths.
 
 The shared source types are:

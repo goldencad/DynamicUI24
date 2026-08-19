@@ -1,5 +1,7 @@
 # Editors
 
+Normative authority: [DynamicUI24 Specification v0.16 §10](../specification/DynamicUI24-Spec-v0.16.md#10-universal-editors-and-forms). This file is implementation guidance; v0.16 wins on conflict.
+
 Editor chrome is quiet and consistent: label, optional required marker, placeholder, helper or safe validation message, optional leading/trailing icon, embedded semantic actions, tooltip and shared contextual help. ReadOnly remains inspectable where policy permits; Disabled is non-interactive.
 
 Text and memo use native OS input. Numeric/date/choice use native Avalonia controls. Date is presented as one compact `CalendarDatePicker`; Time is one native text-backed `HH:mm` field; DateTime is a clearly grouped compact date/time composition. DateRange is one semantic editor with localized Start/End groups that wrap on narrow surfaces. `DateOnly`, `TimeOnly`, `DateTime`, and `DateRangeValue.Start`/`.End` remain authoritative; formatted text is presentation only. The shared presenter uses `dd/MM/yyyy` for vi-VN and the approved culture short-date pattern for other cultures.

@@ -1,5 +1,7 @@
 # Buttons and Dynamic Action Bars
 
+Normative authority: [DynamicUI24 Specification v0.16 §9](../specification/DynamicUI24-Spec-v0.16.md#9-buttons-and-actions). Use `ButtonRole` values Primary, Secondary, Tertiary, Danger, Icon, Split, and Overflow. Application code selects semantic command and role; the shared Standard owns anatomy and behavior while Theme recipes own visual expression.
+
 ## Metadata contract
 
 `ActionDefinition.ButtonVariant` selects `Button`, `DropdownButton`, `SplitButton`, `IconButton`, or `ToggleButton`. Both Top and Bottom `DynamicActionBarHost` instances use the same renderer. `Button` and `IconButton` dispatch their action; a toggle dispatches without owning business state. A dropdown opens its menu. A split button's main segment dispatches its configured default registered command while the chevron opens the menu.
