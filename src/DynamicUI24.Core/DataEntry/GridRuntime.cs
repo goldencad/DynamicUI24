@@ -344,6 +344,15 @@ public sealed partial class DataEntryGridRuntime
         if (context is not null) await LoadAsync(context, authorization, cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>Applies semantic query defaults without acquiring data; the owning coordinator controls the next load.</summary>
+    internal void PrepareQueryState(IEnumerable<GridSortDefinition> sorts, IEnumerable<GridFilterDefinition> filters)
+    {
+        Sorts = sorts.OrderBy(x => x.Priority).ToImmutableArray();
+        Filters = filters.ToImmutableArray();
+        windowCache.Clear(); RequestedViewportStartIndex = 0;
+        SelectedRowKeys = []; CellSelection = GridSelectionState.Empty; EditBuffer = null;
+    }
+
     public bool CanEdit(RowKey rowKey, VariableCode variableCode) => ResolvedDefinition.CanEdit &&
         Rows.Any(x => x.RowKey == rowKey) && ResolvedDefinition.Columns.Any(x => x.Definition.VariableCode == variableCode && x.CanEdit);
 

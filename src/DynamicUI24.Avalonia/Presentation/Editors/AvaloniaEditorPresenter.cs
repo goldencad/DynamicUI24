@@ -17,14 +17,19 @@ namespace DynamicUI24.Avalonia.Presentation.Editors;
 /// </summary>
 public sealed class AvaloniaEditorPresenter : UserControl
 {
-    private readonly StackPanel root = new() { Spacing = 4 };
+    private readonly StackPanel root = new() { Spacing = EditorPresentationTokens.FieldGap,
+        MaxWidth = EditorPresentationTokens.FormMaxReadableWidth };
     private readonly TextBlock label = new();
     private readonly TextBlock message = new() { FontSize = 12, TextWrapping = TextWrapping.Wrap };
     private readonly TextBlock actionFeedback = new() { FontSize = 12, TextWrapping = TextWrapping.Wrap, IsVisible = false };
     private readonly EditorValidator validator;
     private readonly Dictionary<EditorActionDefinition, Button> actionButtons = new();
     private readonly List<TextBox> nativeTextInputs = [];
+    private readonly List<CalendarDatePicker> calendarInputs = [];
     private Control? editor;
+    private Action? captureCompositeCandidate;
+    private TextBlock? rangeStartLabel;
+    private TextBlock? rangeEndLabel;
     private CancellationTokenSource? lookupCancellation;
     private readonly EffectiveAuthorizationContext? authorization;
 
@@ -82,6 +87,7 @@ public sealed class AvaloniaEditorPresenter : UserControl
         Culture = culture ?? throw new ArgumentNullException(nameof(culture));
         // Never rewrite a focused TextBox: its Unicode text, composition, caret and selection belong to native input.
         if (editor is NumericUpDown number) number.NumberFormat = Culture.NumberFormat;
+        foreach (var calendar in calendarInputs) calendar.CustomDateFormatString = DateFormat(culture);
     }
 
     public void RefreshLocalizedPresentation(CultureInfo culture, Func<LocalizationKey, string> localize)
@@ -94,6 +100,8 @@ public sealed class AvaloniaEditorPresenter : UserControl
         if (editor is not null) AutomationProperties.SetName(editor, label.Text);
         if (editor is TextBox text) text.Watermark = Definition.Chrome.PlaceholderKey is { } placeholder ? localize(placeholder) : null;
         foreach (var (action, button) in actionButtons) button.Content = localize(action.LabelKey);
+        if (rangeStartLabel is not null) rangeStartLabel.Text = localize(new("Editor.DateRange.Start"));
+        if (rangeEndLabel is not null) rangeEndLabel.Text = localize(new("Editor.DateRange.End"));
         UpdateMessage(localize);
     }
 
@@ -104,6 +112,7 @@ public sealed class AvaloniaEditorPresenter : UserControl
         AutomationProperties.SetName(this, label.Text);
         root.Children.Add(label);
         editor = CreateNativeEditor(lookupProvider);
+        ApplyPreferredGeometry(editor);
         editor.IsEnabled = Resolution.InteractionState != EditorInteractionState.Disabled;
         AutomationProperties.SetName(editor, label.Text);
         AutomationProperties.SetHelpText(editor, Definition.Chrome.HelperTextKey?.Value ?? string.Empty);
@@ -134,7 +143,10 @@ public sealed class AvaloniaEditorPresenter : UserControl
         }
         if (Definition.HelpContextCode is not null)
         {
-            var help = new Button { Content = "?" };
+            var help = new Button { Content = "?", Width = 28, Height = EditorPresentationTokens.ControlHeight,
+                Padding = new Thickness(4), Tag = "HELP" };
+            AutomationProperties.SetName(help, "Help");
+            ToolTip.SetTip(help, Definition.HelpContextCode.Value);
             help.Click += (_, _) => ActionInvoked?.Invoke(this, new(new("HELP", EditorActionKind.Help,
                 new("Editor.Help"))));
             actions.Children.Add(help);
@@ -210,41 +222,50 @@ public sealed class AvaloniaEditorPresenter : UserControl
         return check;
     }
 
-    private DatePicker CreateDate()
+    private CalendarDatePicker CreateDate()
     {
-        var date = new DatePicker { SelectedDate = State.CandidateValue is DateOnly d ? d.ToDateTime(TimeOnly.MinValue) : State.CandidateValue as DateTime? };
-        date.SelectedDateChanged += (_, _) => { State.SetCandidate(date.SelectedDate is { } value ? DateOnly.FromDateTime(value.DateTime) : null); CandidateChanged?.Invoke(this, EventArgs.Empty); };
+        var date = CompactDatePicker(State.CandidateValue is DateOnly d ? d.ToDateTime(TimeOnly.MinValue) : State.CandidateValue as DateTime?);
+        date.SelectedDateChanged += (_, _) => { State.SetCandidate(date.SelectedDate is { } value ? DateOnly.FromDateTime(value) : null); CandidateChanged?.Invoke(this, EventArgs.Empty); };
+        captureCompositeCandidate = () => State.SetCandidate(date.SelectedDate is { } value ? DateOnly.FromDateTime(value) : null);
         return date;
     }
 
-    private TimePicker CreateTime()
+    private TextBox CreateTime()
     {
-        var time = new TimePicker { SelectedTime = State.CandidateValue is TimeOnly t ? t.ToTimeSpan() : State.CandidateValue as TimeSpan? };
-        time.SelectedTimeChanged += (_, _) => { State.SetCandidate(time.SelectedTime is { } value ? TimeOnly.FromTimeSpan(value) : null); CandidateChanged?.Invoke(this, EventArgs.Empty); };
+        var time = CompactTimeText(State.CandidateValue is TimeOnly t ? t : State.CandidateValue is TimeSpan span ? TimeOnly.FromTimeSpan(span) : null);
+        captureCompositeCandidate = () => CaptureTime(time, value => State.SetCandidate(value));
         return time;
     }
 
     private Control CreateDateTime()
     {
         var value = State.CandidateValue as DateTime?;
-        var panel = new Grid { ColumnDefinitions = new("*,*") };
-        var date = new DatePicker { SelectedDate = value };
-        var time = new TimePicker { SelectedTime = value?.TimeOfDay }; Grid.SetColumn(time, 1);
-        void Changed() { if (date.SelectedDate is { } d && time.SelectedTime is { } t) State.SetCandidate(d.Date + t); CandidateChanged?.Invoke(this, EventArgs.Empty); }
-        date.SelectedDateChanged += (_, _) => Changed(); time.SelectedTimeChanged += (_, _) => Changed();
+        var panel = new Grid { ColumnDefinitions = new("Auto,Auto"), ColumnSpacing = EditorPresentationTokens.InlineGap };
+        var date = CompactDatePicker(value);
+        var time = CompactTimeText(value is { } current ? TimeOnly.FromDateTime(current) : null); Grid.SetColumn(time, 1);
+        void Changed() { if (date.SelectedDate is { } d && TryParseTime(time.Text, out var t)) State.SetCandidate(d.Date + t.ToTimeSpan()); CandidateChanged?.Invoke(this, EventArgs.Empty); }
+        date.SelectedDateChanged += (_, _) => Changed();
+        captureCompositeCandidate = Changed;
         panel.Children.Add(date); panel.Children.Add(time); return panel;
     }
 
     private Control CreateDateRange()
     {
         var range = State.CandidateValue is DateRangeValue r ? r : default;
-        var panel = new Grid { ColumnDefinitions = new("*,*") };
-        var start = new DatePicker { SelectedDate = range.Start?.ToDateTime(TimeOnly.MinValue) };
-        var end = new DatePicker { SelectedDate = range.End?.ToDateTime(TimeOnly.MinValue) }; Grid.SetColumn(end, 1);
-        void Changed() { State.SetCandidate(new DateRangeValue(start.SelectedDate is { } s ? DateOnly.FromDateTime(s.DateTime) : null,
-            end.SelectedDate is { } e ? DateOnly.FromDateTime(e.DateTime) : null)); CandidateChanged?.Invoke(this, EventArgs.Empty); }
+        var panel = new WrapPanel { Orientation = Orientation.Horizontal };
+        var start = CompactDatePicker(range.Start?.ToDateTime(TimeOnly.MinValue));
+        var end = CompactDatePicker(range.End?.ToDateTime(TimeOnly.MinValue));
+        rangeStartLabel = new() { Text = "Start date", VerticalAlignment = VerticalAlignment.Center };
+        rangeEndLabel = new() { Text = "End date", VerticalAlignment = VerticalAlignment.Center };
+        var startGroup = new StackPanel { Spacing = EditorPresentationTokens.FieldGap,
+            Margin = new Thickness(0, 0, EditorPresentationTokens.FieldGroupGap, EditorPresentationTokens.FieldGap),
+            Children = { rangeStartLabel, start } };
+        var endGroup = new StackPanel { Spacing = EditorPresentationTokens.FieldGap,
+            Margin = new Thickness(0, 0, 0, EditorPresentationTokens.FieldGap), Children = { rangeEndLabel, end } };
+        void Changed() { State.SetCandidate(new DateRangeValue(start.SelectedDate is { } s ? DateOnly.FromDateTime(s) : null,
+            end.SelectedDate is { } e ? DateOnly.FromDateTime(e) : null)); CandidateChanged?.Invoke(this, EventArgs.Empty); }
         start.SelectedDateChanged += (_, _) => Changed(); end.SelectedDateChanged += (_, _) => Changed();
-        panel.Children.Add(start); panel.Children.Add(end); return panel;
+        panel.Children.Add(startGroup); panel.Children.Add(endGroup); return panel;
     }
 
     private ComboBox CreateChoice()
@@ -344,12 +365,59 @@ public sealed class AvaloniaEditorPresenter : UserControl
 
     private void CaptureCandidate()
     {
+        captureCompositeCandidate?.Invoke();
         if (editor is TextBox text)
         {
             var parsed = EditorValueParser.Parse(text.Text, Definition, Culture);
             if (parsed.IsSuccess) { State.SetCandidate(parsed.Candidate, text.Text); CandidateChanged?.Invoke(this, EventArgs.Empty); }
             else State.SetValidation(EditorValidationResult.Error(parsed.DiagnosticCode ?? "EDITOR_PARSE_INVALID", Definition.ConsumerSemanticId));
         }
+    }
+
+    private CalendarDatePicker CompactDatePicker(DateTime? value)
+    {
+        var picker = new CalendarDatePicker
+        {
+            SelectedDate = value, SelectedDateFormat = CalendarDatePickerFormat.Custom,
+            CustomDateFormatString = DateFormat(Culture), Width = EditorPresentationTokens.CompactControlWidth,
+            Height = EditorPresentationTokens.ControlHeight, HorizontalAlignment = HorizontalAlignment.Left,
+            IsEnabled = Resolution.InteractionState == EditorInteractionState.Editable,
+        };
+        calendarInputs.Add(picker); return picker;
+    }
+    private static string DateFormat(CultureInfo culture) => culture.Name.Equals("vi-VN", StringComparison.OrdinalIgnoreCase)
+        ? "dd/MM/yyyy" : culture.DateTimeFormat.ShortDatePattern;
+
+    private TextBox CompactTimeText(TimeOnly? value)
+    {
+        var text = new TextBox { Text = value?.ToString("HH:mm", CultureInfo.InvariantCulture), Watermark = "HH:mm",
+            Width = EditorPresentationTokens.CompactControlWidth, Height = EditorPresentationTokens.ControlHeight,
+            HorizontalAlignment = HorizontalAlignment.Left, IsReadOnly = Resolution.InteractionState == EditorInteractionState.ReadOnly };
+        NativeEditorInputOwnership.Enable(text); nativeTextInputs.Add(text);
+        return text;
+    }
+    private void CaptureTime(TextBox text, Action<TimeOnly?> apply)
+    {
+        if (string.IsNullOrWhiteSpace(text.Text)) apply(null);
+        else if (TryParseTime(text.Text, out var value)) apply(value);
+        else State.SetValidation(EditorValidationResult.Error("EDITOR_TIME_PARSE_INVALID", Definition.ConsumerSemanticId));
+        CandidateChanged?.Invoke(this, EventArgs.Empty);
+    }
+    private bool TryParseTime(string? text, out TimeOnly value) => TimeOnly.TryParse(text, Culture, DateTimeStyles.None, out value) ||
+        TimeOnly.TryParseExact(text, "HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out value);
+    private void ApplyPreferredGeometry(Control control)
+    {
+        HorizontalAlignment = HorizontalAlignment.Left;
+        control.HorizontalAlignment = HorizontalAlignment.Left;
+        control.MaxWidth = Resolution.Kind switch
+        {
+            EditorKind.Date or EditorKind.Time => EditorPresentationTokens.CompactControlWidth,
+            EditorKind.DateTime => EditorPresentationTokens.MediumControlWidth,
+            EditorKind.DateRange => EditorPresentationTokens.DateRangeWidth,
+            EditorKind.Boolean => EditorPresentationTokens.CompactControlWidth,
+            EditorKind.MultilineText => EditorPresentationTokens.FormMaxReadableWidth,
+            _ => EditorPresentationTokens.MediumControlWidth,
+        };
     }
 
     private void ApplyStateToControl()

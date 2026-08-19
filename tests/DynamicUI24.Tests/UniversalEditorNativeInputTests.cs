@@ -78,6 +78,72 @@ public sealed class UniversalEditorNativeInputTests
         Assert.True(InputMethod.GetIsInputMethodEnabled(Assert.IsType<NumericUpDown>(presenter.NativeEditor)));
     }
 
+    [Fact]
+    public async Task Date_is_one_compact_calendar_field_and_retains_DateOnly_semantics()
+    {
+        var definition = Definition(EditorValueType.Date);
+        var state = new EditorRuntimeState(definition, new DateOnly(2026, 8, 18));
+        var presenter = Create(definition, state);
+        var picker = Assert.IsType<CalendarDatePicker>(presenter.NativeEditor);
+        Assert.Equal("dd/MM/yyyy", picker.CustomDateFormatString);
+        Assert.Equal(EditorPresentationTokens.CompactControlWidth, picker.Width);
+        picker.SelectedDate = new DateTime(2026, 8, 19);
+        Assert.True(await presenter.CommitAsync());
+        Assert.Equal(new DateOnly(2026, 8, 19), state.CommittedValue);
+    }
+
+    [Fact]
+    public async Task Time_is_one_native_text_field_and_retains_TimeOnly_semantics()
+    {
+        var definition = Definition(EditorValueType.Time);
+        var state = new EditorRuntimeState(definition, new TimeOnly(9, 30));
+        var presenter = Create(definition, state);
+        var time = Assert.IsType<TextBox>(presenter.NativeEditor);
+        Assert.Equal("09:30", time.Text);
+        Assert.True(InputMethod.GetIsInputMethodEnabled(time));
+        time.Text = "14:45";
+        Assert.True(await presenter.CommitAsync());
+        Assert.Equal(new TimeOnly(14, 45), state.CommittedValue);
+    }
+
+    [Fact]
+    public async Task DateTime_and_DateRange_are_compact_semantic_compositions()
+    {
+        var dateTimeDefinition = Definition(EditorValueType.DateTime);
+        var dateTimeState = new EditorRuntimeState(dateTimeDefinition, new DateTime(2026, 8, 18, 9, 30, 0));
+        var dateTime = Create(dateTimeDefinition, dateTimeState);
+        var dateTimeGrid = Assert.IsType<Grid>(dateTime.NativeEditor);
+        Assert.Single(dateTimeGrid.Children.OfType<CalendarDatePicker>());
+        Assert.Single(dateTimeGrid.Children.OfType<TextBox>());
+        Assert.True(await dateTime.CommitAsync());
+        Assert.Equal(new DateTime(2026, 8, 18, 9, 30, 0), dateTimeState.CommittedValue);
+
+        var rangeDefinition = Definition(EditorValueType.DateRange);
+        var original = new DateRangeValue(new(2026, 8, 1), new(2026, 8, 31));
+        var rangeState = new EditorRuntimeState(rangeDefinition, original);
+        var range = Create(rangeDefinition, rangeState);
+        var panel = Assert.IsType<WrapPanel>(range.NativeEditor);
+        Assert.Equal(2, panel.Children.OfType<StackPanel>().SelectMany(x => x.Children).OfType<CalendarDatePicker>().Count());
+        Assert.True(await range.CommitAsync());
+        Assert.Equal(original, rangeState.CommittedValue);
+    }
+
+    [Fact]
+    public void Culture_refresh_changes_only_date_presentation_and_preserves_control_identity_and_accessibility()
+    {
+        var definition = new EditorDefinition(new("NATIVE.DATE"), new("NATIVE.FIELD"), EditorValueType.Date,
+            helpContextCode: new("HELP.DATE"), chrome: new(LabelKey: new("Date.Label")));
+        var state = new EditorRuntimeState(definition, new DateOnly(2026, 8, 18));
+        var presenter = Create(definition, state);
+        var picker = Assert.IsType<CalendarDatePicker>(presenter.NativeEditor);
+        presenter.RefreshLocalizedPresentation(CultureInfo.GetCultureInfo("en-US"), key => key.Value == "Date.Label" ? "Date" : key.Value);
+        Assert.Same(picker, presenter.NativeEditor);
+        Assert.Equal("M/d/yyyy", picker.CustomDateFormatString);
+        Assert.Equal("Date", global::Avalonia.Automation.AutomationProperties.GetName(picker));
+        Assert.Equal(new DateOnly(2026, 8, 18), state.CandidateValue);
+        Assert.Equal(new("HELP.DATE"), definition.HelpContextCode);
+    }
+
     private static AvaloniaEditorPresenter Create(EditorValueType valueType, EditorKind? kind = null)
     {
         var definition = Definition(valueType, kind);

@@ -8,6 +8,7 @@ using Avalonia.Media;
 using Avalonia.Threading;
 using DynamicUI24.Avalonia.Presentation;
 using DynamicUI24.Core.Authorization;
+using DynamicUI24.Core.Authoring;
 using DynamicUI24.Core.ActionBars;
 using DynamicUI24.Core.Companies;
 using DynamicUI24.Core.Workspaces;
@@ -24,6 +25,7 @@ using DynamicUI24.Core.Search;
 using DynamicUI24.Core.Context;
 using DynamicUI24.Core.Sheets;
 using DynamicUI24.Core.ModernWorkspace;
+using DynamicUI24.Core.Reports;
 using DynamicUI24.Shared.Presentation;
 
 namespace DynamicUI24.Demo;
@@ -47,6 +49,7 @@ public sealed partial class MainWindow : Window
     private ImportExportWorkspaceHost importExportHost = null!;
     private TabControl dataEntryTabs = null!;
     private readonly Lazy<Control> dataEntryWorkspace;
+    private readonly Lazy<Control> reportWorkspace;
     private readonly SharedStateView stateView;
     private readonly ICompanyContextProvider companyContext;
     private readonly CompanyScopeCoordinator companyScope;
@@ -140,8 +143,12 @@ public sealed partial class MainWindow : Window
         dataEntryWorkspace = new Lazy<Control>(
             () => CreateDataEntryWorkspace(privacyResolver, sensitiveValuePresenter),
             LazyThreadSafetyMode.ExecutionAndPublication);
+        reportWorkspace = new Lazy<Control>(
+            () => CreateReportWorkspace(),
+            LazyThreadSafetyMode.ExecutionAndPublication);
         workspaceHost.RegisterViewFactory(StandardTemplateCodes.Setup, _ => setupWorkspaceHost);
         workspaceHost.RegisterViewFactory(StandardTemplateCodes.DataEntry, _ => dataEntryWorkspace.Value);
+        workspaceHost.RegisterViewFactory(StandardTemplateCodes.Report, _ => reportWorkspace.Value);
         workspaceNavigation = new WorkspaceNavigationService(workspaces);
         workspaceNavigation.NavigationChanged += (_, args) =>
         {
@@ -343,6 +350,23 @@ public sealed partial class MainWindow : Window
             }
         };
         return dataEntryTabs;
+    }
+
+    private Control CreateReportWorkspace()
+    {
+        var provider = new DemoReportProvider();
+        var definition = DemoReport.CreateDefinition();
+        var runtime = new ReportRuntime(definition, provider, provider, provider,
+            operations: new OperationCoordinator());
+        var reportAuthorization = new ReportAuthorizationResolver(new DefaultUiAuthorizationResolver());
+        var workspace = workspaces.Single(x => x.WorkspaceId == "report-demo");
+        return new ReportWorkspaceHost(runtime, localization,
+            () => new ReportExecutionContext(companyContext.CurrentCompany, "DEMO"), appearanceService, paneSessionState,
+            actionCommands, () => new(CreateActionBarContext(workspace)),
+            async token => (ReportAuthorizationSnapshot?)await reportAuthorization.ResolveAsync(definition, new(demoProfile.Security,
+                companyContext.CurrentCompany.CompanyId, workspace.WorkspaceId, new("DEMO.REPORT"), new(1),
+                companyScope.Snapshot.Version, demoProfile.Generation, demoProfile.Generation, PrivacyMode.On), token),
+            actionDispatcher, iconRegistry);
     }
 
     private Control BuildDemoSurface()
