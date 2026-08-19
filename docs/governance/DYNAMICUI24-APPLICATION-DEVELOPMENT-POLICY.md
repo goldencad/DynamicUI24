@@ -219,6 +219,41 @@ imperative workflows, or a second calculation language into UI metadata.
 
 ------------------------------------------------------------------------
 
+## 9A. Unified Design System Authority (v0.16)
+
+DynamicUI24 is the authoritative owner of TS24 application UI presentation
+standards. The required ownership chain is:
+
+``` text
+Application Definition (what)
+→ DynamicUI24 semantic component/token
+→ DynamicUI24 Presentation Standard (structure and behavior)
+→ versioned Theme (visual expression)
+→ rendered UI
+```
+
+`STANDARD`, `THEME`, and `APPLICATION METADATA` are separate contracts.
+Applications MUST consume semantic typography, color, spacing, sizing, density,
+motion, icon, and component-role contracts. They MUST NOT establish product-local
+font/size scales, raw control palettes, arbitrary geometry where approved tokens
+exist, or parallel button, editor, grid, navigation-tree, menu, pane, notification,
+or state design systems.
+
+Theme changes and future theme generations MUST NOT require application metadata
+or business-state changes. Raw physical values belong to the approved theme or
+platform adapter layer. Document-native content typography is not application UI
+and remains under document/DocsView24 authority.
+
+When no approved semantic role exists, record a framework capability gap; absence
+of a token is not permission to create an application design system.
+
+A shared UI primitive is complete only after functional verification, Design
+System compliance, Product UX review, and real-platform physical acceptance where
+applicable. Compilation, binding, and automated tests alone are insufficient, and
+a raw framework control is not finished product UI.
+
+------------------------------------------------------------------------
+
 ## 10. Developer UI Authoring
 
 Where supported, production UI definitions SHOULD use the governed
