@@ -249,8 +249,7 @@ public sealed partial class MainWindow : Window
                     ? new DemoUiAuthoringWorkspace(() => demoProfile.Security)
                     : definition.WorkspaceId == "modern-workspace-demo"
                         ? new DemoModernWorkspace(paneSessionState)
-                    : new StackPanel { Margin = new Thickness(18), Children =
-                        { new TextBlock { Text = definition.DisplayName, FontSize = 24 } } });
+                    : BuildDashboardWorkspace(definition));
         actionDispatcher = new ActionBarCommandDispatcher(
             workspaceNavigation, new DemoActionRefreshService(RefreshFromActionBar), actionCommands);
         topActionBar = new DynamicActionBarHost(actionDispatcher, localization, iconRegistry, appearanceService);
@@ -273,7 +272,7 @@ public sealed partial class MainWindow : Window
         ribbonHost.CommandCompleted += (_, result) =>
             shellPresentation.StatusMessage = $"Ribbon: {result.Status} · {result.DiagnosticCode ?? result.Message ?? "OK"}";
         shell.RibbonContent = ribbonHost;
-        treeHost = new DynamicTreeHost(localization, iconRegistry);
+        treeHost = new DynamicTreeHost(localization, iconRegistry, appearance: appearanceService);
         treeHost.NodeSelected += (_, args) => NavigateTreeNode(args.Node);
         shell.NavigationContent = treeHost;
         var searchActivation = new SearchActivationService(workspaceNavigation, commandRegistry,
@@ -404,6 +403,39 @@ public sealed partial class MainWindow : Window
             },
         };
         return new ScrollViewer { Content = content };
+    }
+
+    private Control BuildDashboardWorkspace(WorkspaceDefinition definition)
+    {
+        var page = new DashboardPage(definition.DisplayName,
+            localization.Get(new("Demo.Dashboard.Subtitle")));
+        var metrics = new WrapPanel
+        {
+            Orientation = Orientation.Horizontal,
+            ItemWidth = double.NaN,
+            ItemHeight = double.NaN,
+        };
+        metrics.Children.Add(new MetricCard(localization.Get(new("Demo.Dashboard.Active")), "1",
+            localization.Get(new("Demo.Dashboard.Active.Context"))));
+        metrics.Children.Add(new MetricCard(localization.Get(new("Demo.Dashboard.State")),
+            localization.Get(new("Demo.Dashboard.Ready")), localization.Get(new("Demo.Dashboard.State.Context"))));
+        metrics.Children.Add(new MetricCard(localization.Get(new("Demo.Dashboard.Navigation")),
+            localization.Get(new("Demo.Dashboard.Synced")), localization.Get(new("Demo.Dashboard.Navigation.Context"))));
+        foreach (var metric in metrics.Children)
+            metric.Margin = new Thickness(0, 0, DashboardPage.ResourceNumber("DuiCardGap", 12),
+                DashboardPage.ResourceNumber("DuiCardGap", 12));
+        page.AddSection(localization.Get(new("Demo.Dashboard.Summary")), metrics,
+            localization.Get(new("Demo.Dashboard.Summary.Support")));
+
+        var overview = new OverviewSection(localization.Get(new("Demo.Overview.Title")),
+            localization.Get(new("Demo.Overview.Support")),
+        [
+            localization.Get(new("Demo.Overview.Shell")),
+            localization.Get(new("Demo.Overview.Identity")),
+            localization.Get(new("Demo.Overview.Theme")),
+        ]);
+        page.AddSection(localization.Get(new("Demo.Overview.Section")), overview);
+        return new ScrollViewer { Content = page };
     }
 
     private static Control Field(TextBlock label, ComboBox selector, int column, int row = 0)
@@ -972,6 +1004,9 @@ public sealed partial class MainWindow : Window
 
     private void StartSmokeRun(object? sender, EventArgs e)
     {
+        if (!shell.UsesSharedUiTypography || !treeHost.UsesSharedUiTypography || !ribbonHost.UsesSharedUiTypography)
+            throw new InvalidOperationException("Shell typography roots do not share the platform-resolved UI font.");
+        Console.WriteLine($"SMOKE TYPOGRAPHY: PASS FAMILY={AvaloniaTypography.UiFamilyName} SHELL RIBBON TREE");
         smokeTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(180) };
         smokeTimer.Tick += AdvanceSmokeRun;
         smokeTimer.Start();

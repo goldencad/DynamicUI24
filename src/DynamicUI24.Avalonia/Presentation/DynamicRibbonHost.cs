@@ -1,3 +1,4 @@
+using Avalonia;
 using ActiproSoftware.UI.Avalonia.Controls.Bars;
 using Avalonia.Automation;
 using Avalonia.Controls;
@@ -19,6 +20,7 @@ public sealed class DynamicRibbonHost : UserControl
     private readonly IIconRegistry icons;
     private RibbonResolutionContext context;
     private Ribbon? ribbon;
+    private bool isMinimized = true;
 
     public DynamicRibbonHost(
         RibbonDefinition definition,
@@ -42,6 +44,8 @@ public sealed class DynamicRibbonHost : UserControl
 
     public ResolvedRibbon ResolvedRibbon { get; private set; } = null!;
     public string? SelectedTabCode { get; private set; }
+    public FontFamily ResolvedUiFontFamily => ribbon?.FontFamily ?? AvaloniaTypography.UiFontFamily;
+    public bool UsesSharedUiTypography => ResolvedUiFontFamily.Equals(AvaloniaTypography.UiFontFamily);
     public event EventHandler<RibbonCommandResult>? CommandCompleted;
 
     public Task<RibbonCommandResult> ExecuteCommandAsync(string commandCode,
@@ -64,15 +68,19 @@ public sealed class DynamicRibbonHost : UserControl
     private void Rebuild()
     {
         if (ribbon?.SelectedItem is RibbonTabItem selected) SelectedTabCode = selected.Key;
+        if (ribbon is not null) isMinimized = ribbon.IsMinimized;
         ResolvedRibbon = resolver.Resolve(definition, context, knownWorkspaces);
         ribbon = new Ribbon
         {
+            FontFamily = AvaloniaTypography.UiFontFamily,
+            FontSize = ResourceNumber("DuiTypographyNavigation", 13),
             IsOptionsButtonVisible = false,
             IsApplicationButtonVisible = false,
             QuickAccessToolBarMode = RibbonQuickAccessToolBarMode.None,
             CanChangeLayoutMode = false,
-            IsCollapsible = false,
-            IsMinimizable = false,
+            IsCollapsible = true,
+            IsMinimizable = true,
+            IsMinimized = isMinimized,
         };
 
         foreach (var resolvedTab in ResolvedRibbon.Tabs)
@@ -136,4 +144,7 @@ public sealed class DynamicRibbonHost : UserControl
         Width = size,
         Height = size,
     };
+
+    private static double ResourceNumber(string key, double fallback) =>
+        Application.Current?.TryFindResource(key, out var value) == true && value is double number ? number : fallback;
 }

@@ -1,23 +1,25 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="DynamicUI24.Avalonia.Presentation.ShellHost">
-  <Border Background="{DynamicResource DuiSurfaceBrush}">
+  <Border Background="{DynamicResource DuiSurfaceWindowBrush}">
     <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
-      <Border Padding="18,12"
-              Background="{DynamicResource DuiSurfaceRaisedBrush}"
-              BorderBrush="{DynamicResource DuiBorderBrush}"
+      <Border Padding="{DynamicResource DuiShellHeaderPadding}"
+              Background="{DynamicResource DuiSurfacePanelBrush}"
+              BorderBrush="{DynamicResource DuiBorderSubtleBrush}"
               BorderThickness="0,0,0,1">
         <Grid ColumnDefinitions="Auto,*,Auto,Auto" ColumnSpacing="12">
-          <Button x:Name="ApplicationMenuButton" Width="44" Height="38" Padding="5"
+          <Button x:Name="ApplicationMenuButton" MinWidth="{DynamicResource DuiHitTargetMinimum}"
+                  Height="{DynamicResource DuiControlHeightStandard}" Padding="5"
                   Click="ApplicationMenuClicked">
-            <PathIcon x:Name="LogoIcon" Width="20" Height="20"
-                      Foreground="{DynamicResource DuiAccentBrush}" />
+            <PathIcon x:Name="LogoIcon" Width="{DynamicResource DuiIconSizeLarge}"
+                      Height="{DynamicResource DuiIconSizeLarge}"
+                      Foreground="{DynamicResource DuiAccentPrimaryBrush}" />
           </Button>
           <StackPanel Grid.Column="1" VerticalAlignment="Center">
-            <TextBlock x:Name="ApplicationNameText" FontSize="19" FontWeight="SemiBold"
-                       Foreground="{DynamicResource DuiTextBrush}" />
-            <TextBlock x:Name="WorkspaceTitleText" FontSize="12"
-                       Foreground="{DynamicResource DuiTextMutedBrush}" />
+            <TextBlock x:Name="ApplicationNameText" FontSize="{DynamicResource DuiTypographyTitle}"
+                       FontWeight="SemiBold" Foreground="{DynamicResource DuiTextPrimaryBrush}" />
+            <TextBlock x:Name="WorkspaceTitleText" FontSize="{DynamicResource DuiTypographyBodySmall}"
+                       Foreground="{DynamicResource DuiTextSecondaryBrush}" />
           </StackPanel>
           <Button Grid.Column="2" x:Name="SearchButton" Click="SearchClicked" MinWidth="126"
                   AutomationProperties.Name="Search commands and destinations">
@@ -33,27 +35,27 @@
       <ContentControl Grid.Row="1" x:Name="RibbonPresenter" />
       <ContentControl Grid.Row="2" x:Name="NotificationPresenter" />
       <Grid Grid.Row="3" x:Name="ShellRegions" ColumnDefinitions="260,5,*,0,0">
-        <Border Grid.Column="0" Background="{DynamicResource DuiSurfaceRaisedBrush}"
-                BorderBrush="{DynamicResource DuiBorderBrush}" BorderThickness="0,0,1,0">
+        <Border Grid.Column="0" Background="{DynamicResource DuiSurfacePanelBrush}"
+                BorderBrush="{DynamicResource DuiBorderSubtleBrush}" BorderThickness="0,0,1,0">
           <ContentControl x:Name="NavigationPresenter" />
         </Border>
-        <GridSplitter Grid.Column="1" ResizeDirection="Columns" Background="{DynamicResource DuiBorderBrush}" />
+        <GridSplitter Grid.Column="1" ResizeDirection="Columns" Background="{DynamicResource DuiBorderSubtleBrush}" />
         <Grid Grid.Column="2" RowDefinitions="Auto,*" MinWidth="420">
-          <ContentControl x:Name="BreadcrumbPresenter" Margin="18,10,18,0" />
-          <ContentControl Grid.Row="1" x:Name="WorkspacePresenter" Margin="18" />
+          <ContentControl x:Name="BreadcrumbPresenter" Margin="16,8,16,0" />
+          <ContentControl Grid.Row="1" x:Name="WorkspacePresenter" Margin="{DynamicResource DuiShellRegionPaddingThickness}" />
         </Grid>
         <GridSplitter Grid.Column="3" x:Name="ContextSplitter" ResizeDirection="Columns"
-                      ResizeBehavior="PreviousAndNext" Background="{DynamicResource DuiBorderBrush}"
+                      ResizeBehavior="PreviousAndNext" Background="{DynamicResource DuiBorderSubtleBrush}"
                       IsVisible="False" />
         <Border Grid.Column="4" x:Name="ContextRegion" IsVisible="False"
-                Background="{DynamicResource DuiSurfaceRaisedBrush}"
-                BorderBrush="{DynamicResource DuiBorderBrush}" BorderThickness="1,0,0,0">
+                Background="{DynamicResource DuiSurfacePanelBrush}"
+                BorderBrush="{DynamicResource DuiBorderSubtleBrush}" BorderThickness="1,0,0,0">
           <ContentControl x:Name="ContextPresenter" />
         </Border>
       </Grid>
       <Border Grid.Row="3" x:Name="ApplicationMenuOverlay" IsVisible="False"
               Background="{DynamicResource DuiSurfaceBrush}"
-              BorderBrush="{DynamicResource DuiBorderBrush}" BorderThickness="0,0,0,1">
+              BorderBrush="{DynamicResource DuiBorderSubtleBrush}" BorderThickness="0,0,0,1">
         <ContentControl x:Name="ApplicationMenuPresenter" />
       </Border>
       <Border Grid.Row="0" Grid.RowSpan="4" x:Name="SearchOverlay" IsVisible="False"
@@ -61,11 +63,12 @@
         <ContentControl x:Name="SearchPresenter" HorizontalAlignment="Center" VerticalAlignment="Top"
                         Margin="24,72,24,24" PointerPressed="SearchContentPressed" />
       </Border>
-      <Border Grid.Row="4" Padding="18,8"
-              Background="{DynamicResource DuiSurfaceRaisedBrush}"
-              BorderBrush="{DynamicResource DuiBorderBrush}"
+      <Border Grid.Row="4" Padding="{DynamicResource DuiShellStatusPadding}"
+              Background="{DynamicResource DuiSurfacePanelBrush}"
+              BorderBrush="{DynamicResource DuiBorderSubtleBrush}"
               BorderThickness="0,1,0,0">
-        <TextBlock x:Name="StatusText" Foreground="{DynamicResource DuiTextMutedBrush}" />
+        <TextBlock x:Name="StatusText" FontSize="{DynamicResource DuiTypographyBodySmall}"
+                   Foreground="{DynamicResource DuiTextSecondaryBrush}" />
       </Border>
     </Grid>
   </Border>

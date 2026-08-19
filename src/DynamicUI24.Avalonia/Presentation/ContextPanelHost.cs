@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
 using Avalonia.Layout;
@@ -10,12 +11,14 @@ namespace DynamicUI24.Avalonia.Presentation;
 public sealed class ContextPanelHost : Grid
 {
     private readonly ILocalizationService localization;
-    private readonly TextBlock title = new() { FontSize = 17, FontWeight = global::Avalonia.Media.FontWeight.SemiBold };
+    private readonly TextBlock title = new() { FontWeight = global::Avalonia.Media.FontWeight.SemiBold };
     private readonly Button close = new() { Content = "×", Width = 36 };
     private readonly TabControl sections = new();
     public ContextPanelHost(ILocalizationService localization)
     {
         this.localization = localization; RowDefinitions.Add(new(GridLength.Auto)); RowDefinitions.Add(new(GridLength.Star));
+        AvaloniaTypography.ApplyUiFont(this);
+        title.Bind(TextBlock.FontSizeProperty, title.GetResourceObservable("DuiTypographySectionTitle"));
         var header = new Grid { ColumnDefinitions = new("*,Auto"), Margin = new global::Avalonia.Thickness(14, 10) };
         header.Children.Add(title); Grid.SetColumn(close, 1); header.Children.Add(close); Children.Add(header);
         Grid.SetRow(sections, 1); Children.Add(sections); close.Click += (_, _) => CloseRequested?.Invoke(this, EventArgs.Empty);

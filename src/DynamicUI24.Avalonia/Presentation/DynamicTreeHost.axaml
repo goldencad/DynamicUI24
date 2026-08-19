@@ -2,26 +2,34 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:DynamicUI24.Avalonia.Presentation"
              x:Class="DynamicUI24.Avalonia.Presentation.DynamicTreeHost">
-  <Grid RowDefinitions="Auto,Auto,*">
-    <TextBlock x:Name="TitleText" Margin="12,12,12,8" FontWeight="SemiBold"
-               Foreground="{DynamicResource DuiTextBrush}" />
-    <TextBox x:Name="SearchBox" Grid.Row="1" Margin="8,0,8,6" Watermark="Search navigation…"
+  <Grid RowDefinitions="Auto,Auto,*" Background="{DynamicResource DuiSurfacePanelBrush}">
+    <TextBlock x:Name="TitleText" Margin="16,16,16,8" FontWeight="SemiBold"
+               FontSize="{DynamicResource DuiTypographySectionTitle}"
+               Foreground="{DynamicResource DuiTextPrimaryBrush}" />
+    <TextBox x:Name="SearchBox" Grid.Row="1" Margin="12,0,12,8" Watermark="Search navigation…"
+             MinHeight="{DynamicResource DuiControlHeightStandard}"
              TextChanged="SearchTextChanged" AutomationProperties.Name="Search navigation" />
     <TreeView x:Name="Tree" Grid.Row="2" Margin="6" SelectionChanged="TreeSelectionChanged">
       <TreeView.Styles>
         <Style Selector="TreeViewItem">
           <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+          <Setter Property="FontSize" Value="{DynamicResource DuiTypographyNavigation}" />
         </Style>
         <Style Selector="TreeViewItem /template/ ContentPresenter">
           <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        </Style>
+        <Style Selector="TreeViewItem /template/ ToggleButton">
+          <Setter Property="Width" Value="{DynamicResource DuiNavigationChevronSize}" />
+          <Setter Property="Height" Value="{DynamicResource DuiNavigationChevronSize}" />
+          <Setter Property="VerticalAlignment" Value="Center" />
         </Style>
         <Style Selector="Border.tree-row, Border.overflow-row">
           <Setter Property="Background" Value="Transparent" />
           <Setter Property="BorderBrush" Value="Transparent" />
           <Setter Property="BorderThickness" Value="1" />
-          <Setter Property="CornerRadius" Value="7" />
-          <Setter Property="Padding" Value="8,5" />
-          <Setter Property="MinHeight" Value="30" />
+          <Setter Property="CornerRadius" Value="{DynamicResource DuiRadiusMediumCorner}" />
+          <Setter Property="Padding" Value="8,3" />
+          <Setter Property="MinHeight" Value="{DynamicResource DuiNavigationRowHeight}" />
           <Setter Property="HorizontalAlignment" Value="Stretch" />
         </Style>
         <Style Selector="Border.tree-row:pointerover, Border.overflow-row:pointerover">
@@ -34,8 +42,10 @@
           <Setter Property="Background" Value="{DynamicResource DuiSelectionHoverBrush}" />
         </Style>
         <Style Selector="Border.tree-row.disabled">
-          <Setter Property="Background" Value="{DynamicResource DuiDisabledSurfaceBrush}" />
-          <Setter Property="Opacity" Value="0.68" />
+          <Setter Property="Opacity" Value="0.56" />
+        </Style>
+        <Style Selector="Border.tree-row.parent TextBlock.node-label">
+          <Setter Property="FontWeight" Value="SemiBold" />
         </Style>
         <Style Selector="TreeViewItem:focus-within Border.tree-row, Border.overflow-row:focus-within">
           <Setter Property="BorderBrush" Value="{DynamicResource DuiFocusBrush}" />
@@ -44,16 +54,20 @@
       <TreeView.DataTemplates>
         <TreeDataTemplate DataType="local:TreeNodeView" ItemsSource="{Binding Children}">
           <Border Classes="tree-row" Classes.selected="{Binding IsSelected}"
+                  Classes.parent="{Binding HasChildren}"
                   Classes.disabled="{Binding IsDisabled}" IsEnabled="{Binding IsEnabled}">
-            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="7">
-              <PathIcon Width="15" Height="15" Data="{Binding IconPath}"
-                        Foreground="{DynamicResource DuiAccentBrush}" />
-              <TextBlock Grid.Column="1" Text="{Binding Label}" VerticalAlignment="Center" />
+            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+              <PathIcon Width="{DynamicResource DuiNavigationIconSize}"
+                        Height="{DynamicResource DuiNavigationIconSize}" Data="{Binding IconPath}"
+                        Foreground="{DynamicResource DuiAccentPrimaryBrush}" />
+              <TextBlock Grid.Column="1" Classes="node-label" Text="{Binding Label}" VerticalAlignment="Center"
+                         TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding Label}"
+                         AutomationProperties.Name="{Binding Label}" />
             </Grid>
           </Border>
         </TreeDataTemplate>
         <DataTemplate DataType="local:TreeOverflowView">
-          <Border Classes="overflow-row" Margin="14,1,0,1">
+          <Border Classes="overflow-row" Margin="{DynamicResource DuiNavigationOverflowMargin}">
             <StackPanel Orientation="Horizontal" Spacing="6">
               <Button Content="{Binding ShowMoreLabel}" IsVisible="{Binding CanShowMore}"
                       Click="ShowMoreClick" Padding="6,2" />

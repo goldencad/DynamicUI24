@@ -14,9 +14,9 @@ public sealed class NotificationHost : Border
     private readonly NotificationActionDispatcher dispatcher;
     private readonly ILocalizationService localization;
     private readonly IIconRegistry icons;
-    private readonly StackPanel root = new() { Spacing = 8 };
-    private readonly StackPanel centerItems = new() { Spacing = 8 };
-    private readonly Border centerPanel = new() { IsVisible = false, Padding = new Thickness(10), BorderThickness = new Thickness(1) };
+    private readonly StackPanel root = new() { Spacing = 6 };
+    private readonly StackPanel centerItems = new() { Spacing = 6 };
+    private readonly Border centerPanel = new() { IsVisible = false, Padding = new Thickness(10), BorderThickness = new Thickness(0, 1, 0, 0) };
 
     public NotificationHost(NotificationCoordinator coordinator, NotificationActionDispatcher dispatcher,
         ILocalizationService localization, IIconRegistry icons)
@@ -25,11 +25,12 @@ public sealed class NotificationHost : Border
         this.dispatcher = dispatcher ?? throw new ArgumentNullException(nameof(dispatcher));
         this.localization = localization ?? throw new ArgumentNullException(nameof(localization));
         this.icons = icons ?? throw new ArgumentNullException(nameof(icons));
+        AvaloniaTypography.ApplyUiFont(this);
         Padding = new Thickness(0);
         Child = root;
-        centerPanel.Child = new ScrollViewer { Content = centerItems, MaxHeight = 360 };
-        centerPanel.Bind(BackgroundProperty, centerPanel.GetResourceObservable("DuiSurfaceRaisedBrush"));
-        centerPanel.Bind(BorderBrushProperty, centerPanel.GetResourceObservable("DuiBorderBrush"));
+        centerPanel.Child = new ScrollViewer { Content = centerItems, MaxHeight = 240 };
+        centerPanel.Bind(BackgroundProperty, centerPanel.GetResourceObservable("DuiSurfacePanelBrush"));
+        centerPanel.Bind(BorderBrushProperty, centerPanel.GetResourceObservable("DuiBorderSubtleBrush"));
         coordinator.Changed += (_, model) => Render(model);
         localization.CultureChanged += (_, _) => Render(coordinator.Current);
         Render(coordinator.Current);
@@ -42,8 +43,9 @@ public sealed class NotificationHost : Border
     private void Render(NotificationPresentationModel model)
     {
         root.Children.Clear();
-        var centerHeader = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
-        var centerButton = new Button();
+        var centerHeader = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,Auto"), ColumnSpacing = 8,
+            Margin = new Thickness(12, 4), HorizontalAlignment = HorizontalAlignment.Left };
+        var centerButton = new Button { MinWidth = 32, MinHeight = 28, Padding = new Thickness(6, 2) };
         centerButton.Click += (_, _) =>
         {
             centerPanel.IsVisible = !centerPanel.IsVisible;
@@ -99,8 +101,10 @@ public sealed class NotificationHost : Border
         if (surfaceDefinition.ShowTitle)
             heading.Children.Add(new TextBlock { Text = localization.Get(definition.TitleKey), FontWeight = global::Avalonia.Media.FontWeight.SemiBold,
                 TextWrapping = global::Avalonia.Media.TextWrapping.Wrap });
-        heading.Children.Add(new TextBlock { Text = SeverityText(definition.Severity),
-            Foreground = null, FontSize = 11, VerticalAlignment = VerticalAlignment.Center });
+        var severity = new TextBlock { Text = SeverityText(definition.Severity),
+            Foreground = null, VerticalAlignment = VerticalAlignment.Center };
+        severity.Bind(TextBlock.FontSizeProperty, severity.GetResourceObservable("DuiTypographyCaption"));
+        heading.Children.Add(severity);
         body.Children.Add(heading);
         if (surfaceDefinition.ShowMessage && surfaceDefinition.DisplayMode != NotificationDisplayMode.IconOnly)
             body.Children.Add(new TextBlock { Text = localization.Get(definition.MessageKey), TextWrapping = global::Avalonia.Media.TextWrapping.Wrap });
@@ -108,8 +112,10 @@ public sealed class NotificationHost : Border
         {
             body.Children.Add(new ProgressBar { Minimum = 0, Maximum = progress.MaximumValue, Value = progress.CurrentValue,
                 IsIndeterminate = progress.IsIndeterminate, Height = 7 });
-            body.Children.Add(new TextBlock { Text = progress.DisplayTextKey is { } key ? localization.Get(key) :
-                $"{progress.CurrentValue:0} / {progress.MaximumValue:0} ({progress.Percentage:0}%)", FontSize = 11 });
+            var progressText = new TextBlock { Text = progress.DisplayTextKey is { } key ? localization.Get(key) :
+                $"{progress.CurrentValue:0} / {progress.MaximumValue:0} ({progress.Percentage:0}%)" };
+            progressText.Bind(TextBlock.FontSizeProperty, progressText.GetResourceObservable("DuiTypographyCaption"));
+            body.Children.Add(progressText);
         }
         if (surfaceDefinition.DisplayMode != NotificationDisplayMode.IconOnly)
         {

@@ -32,6 +32,7 @@ public sealed partial class SearchPaletteView : UserControl
         this.icons = icons; this.contextFactory = contextFactory; this.activate = activate;
         this.quickAccess = quickAccess;
         InitializeComponent();
+        AvaloniaTypography.ApplyUiFont(this);
         localization.CultureChanged += (_, _) => RefreshLabels();
         KeyDown += PaletteKeyDown;
         RefreshLabels();

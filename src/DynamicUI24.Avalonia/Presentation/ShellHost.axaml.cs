@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using Avalonia.Controls;
+using Avalonia.Controls.Documents;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Input;
@@ -38,6 +39,7 @@ public sealed partial class ShellHost : UserControl
         ArgumentNullException.ThrowIfNull(icons);
 
         InitializeComponent();
+        AvaloniaTypography.ApplyUiFont(this);
         LogoIcon.Data = Geometry.Parse(icons.Resolve(presentation.Brand.ApplicationLogoKey).SvgPathData);
         presentation.PropertyChanged += PresentationChanged;
         localization.CultureChanged += LocalizationChanged;
@@ -91,6 +93,8 @@ public sealed partial class ShellHost : UserControl
         return bounded;
     }
     public ShellSplitLayoutState SplitLayout => splitLayout;
+    public FontFamily ResolvedUiFontFamily => TextElement.GetFontFamily(this);
+    public bool UsesSharedUiTypography => ResolvedUiFontFamily.Equals(AvaloniaTypography.UiFontFamily);
 
     public Control? WorkspaceContent
     {
@@ -182,9 +186,13 @@ public sealed partial class ShellHost : UserControl
     private void RefreshResponsiveSearch()
     {
         var narrow = Bounds.Width < 720;
+        var collapseNavigation = Bounds.Width < 840;
         SearchButtonLabel.IsVisible = !narrow;
         SearchShortcutLabel.IsVisible = !narrow;
         SearchButton.MinWidth = narrow ? 44 : 126;
+        NavigationPresenter.IsVisible = !collapseNavigation;
+        ShellRegions.ColumnDefinitions[0].Width = new(collapseNavigation ? 0 : 260, GridUnitType.Pixel);
+        ShellRegions.ColumnDefinitions[1].Width = new(collapseNavigation ? 0 : 5, GridUnitType.Pixel);
     }
 
     private void ExitClicked(object? sender, RoutedEventArgs e) => exitService.RequestExit();

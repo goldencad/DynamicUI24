@@ -18,10 +18,10 @@
                         Foreground="{DynamicResource DuiAccentBrush}" />
               <StackPanel Grid.Column="1">
                 <TextBlock Text="{Binding Title}" />
-                <TextBlock Text="{Binding Subtitle}" FontSize="11"
+                <TextBlock Text="{Binding Subtitle}" FontSize="{DynamicResource DuiTypographyCaption}"
                            Foreground="{DynamicResource DuiTextMutedBrush}" />
               </StackPanel>
-              <TextBlock Grid.Column="2" Text="{Binding Group}" FontSize="10"
+              <TextBlock Grid.Column="2" Text="{Binding Group}" FontSize="{DynamicResource DuiTypographyCaption}"
                          Foreground="{DynamicResource DuiTextMutedBrush}" VerticalAlignment="Center" />
             </Grid>
           </DataTemplate>

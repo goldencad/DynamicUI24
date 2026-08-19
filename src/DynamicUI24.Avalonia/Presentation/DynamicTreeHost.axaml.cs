@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
+using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Documents;
 using Avalonia.Interactivity;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -18,35 +20,44 @@ public sealed partial class DynamicTreeHost : UserControl
     private readonly ILocalizationService localization;
     private readonly IIconRegistry icons;
     private readonly TreeOverflowController overflow;
-    private readonly HashSet<string> expandedNodeIds = new(StringComparer.OrdinalIgnoreCase);
+    private readonly IAppearancePreferenceService? appearance;
+    private readonly NavigationTreeSessionState session = new();
     private ImmutableArray<ResolvedTreeNode> resolved = [];
     private ImmutableArray<ResolvedTreeNode> visible = [];
     private bool applyingSelection;
 
     public DynamicTreeHost()
-        : this(new DictionaryLocalizationService(), new SemanticIconRegistry(), null)
+        : this(new DictionaryLocalizationService(), new SemanticIconRegistry(), null, null)
     {
     }
 
-    public DynamicTreeHost(ILocalizationService localization, IIconRegistry icons, TreeOverflowOptions? overflowOptions = null)
+    public DynamicTreeHost(ILocalizationService localization, IIconRegistry icons,
+        TreeOverflowOptions? overflowOptions = null, IAppearancePreferenceService? appearance = null)
     {
         this.localization = localization ?? throw new ArgumentNullException(nameof(localization));
         this.icons = icons ?? throw new ArgumentNullException(nameof(icons));
+        this.appearance = appearance;
         overflow = new(overflowOptions);
         InitializeComponent();
+        AvaloniaTypography.ApplyUiFont(this);
         localization.CultureChanged += (_, _) => { ApplySearch(); Render(); };
         TitleText.Text = localization.Get(new("Tree.Navigation"));
         SearchDefinition = new();
+        ApplyDensity();
+        if (appearance is not null) appearance.PreferencesChanged += (_, _) => ApplyDensity();
     }
 
-    public string? SelectedNodeId { get; private set; }
-    public string? SelectedWorkspaceId { get; private set; }
+    public string? SelectedNodeId => session.SelectedNodeId;
+    public string? SelectedWorkspaceId => session.SelectedWorkspaceId;
     public TreeOverflowOptions OverflowOptions => overflow.Options;
     public NavigationSearchDefinition SearchDefinition { get; set; }
     public bool ShowTitle { get => TitleText.IsVisible; set => TitleText.IsVisible = value; }
     public event EventHandler<TreeNodeSelectedEventArgs>? NodeSelected;
     public string NavigationQuery { get => SearchBox.Text ?? string.Empty; set => SearchBox.Text = value; }
     public IReadOnlyList<string> VisibleNodeIds => FlattenResolved(visible).Select(x => x.Definition.NodeId).ToArray();
+    public double RowHeight => Resources["DuiNavigationRowHeight"] as double? ?? 34;
+    public FontFamily ResolvedUiFontFamily => TextElement.GetFontFamily(this);
+    public bool UsesSharedUiTypography => ResolvedUiFontFamily.Equals(AvaloniaTypography.UiFontFamily);
 
     public void Show(ResolvedTree tree)
     {
@@ -62,8 +73,7 @@ public sealed partial class DynamicTreeHost : UserControl
             string.Equals(x.Definition.WorkspaceId, workspaceId, StringComparison.OrdinalIgnoreCase))?.Definition.NodeId;
         if (nodeId is null) return;
         EnsureNodeVisible(nodeId);
-        SelectedNodeId = nodeId;
-        SelectedWorkspaceId = workspaceId;
+        session.Select(nodeId, workspaceId);
         Render();
         var item = Flatten(Tree.ItemsSource as IEnumerable<ITreeItemView>).OfType<TreeNodeView>().FirstOrDefault(x =>
             string.Equals(x.Definition.WorkspaceId, workspaceId, StringComparison.OrdinalIgnoreCase));
@@ -78,8 +88,8 @@ public sealed partial class DynamicTreeHost : UserControl
         if (string.IsNullOrWhiteSpace(nodeId) || !EnsureNodeVisible(nodeId)) return false;
         var resolvedNode = FlattenResolved(resolved).First(x =>
             x.Definition.NodeId.Equals(nodeId, StringComparison.OrdinalIgnoreCase));
-        SelectedNodeId = resolvedNode.Definition.NodeId;
-        SelectedWorkspaceId = resolvedNode.IsNavigable ? resolvedNode.Definition.WorkspaceId : null;
+        session.Select(resolvedNode.Definition.NodeId,
+            resolvedNode.IsNavigable ? resolvedNode.Definition.WorkspaceId : null);
         Render();
         var item = Flatten(Tree.ItemsSource as IEnumerable<ITreeItemView>).OfType<TreeNodeView>()
             .FirstOrDefault(x => x.Definition.NodeId.Equals(nodeId, StringComparison.OrdinalIgnoreCase));
@@ -97,12 +107,12 @@ public sealed partial class DynamicTreeHost : UserControl
             .FirstOrDefault(x => x.Definition.NodeId.Equals(nodeId, StringComparison.OrdinalIgnoreCase));
         if (item is null) return false;
         item.IsExpanded = isExpanded;
-        if (isExpanded) expandedNodeIds.Add(nodeId); else expandedNodeIds.Remove(nodeId);
+        session.SetExpanded(nodeId, isExpanded);
         Render();
         return true;
     }
 
-    public bool IsNodeExpanded(string nodeId) => expandedNodeIds.Contains(nodeId);
+    public bool IsNodeExpanded(string nodeId) => session.IsExpanded(nodeId);
 
     public TreeRowVisualState GetNodeVisualState(string nodeId, bool isPointerOver = false,
         bool hasKeyboardFocus = false)
@@ -190,7 +200,7 @@ public sealed partial class DynamicTreeHost : UserControl
         localization.Get(node.Definition.DisplayNameKey),
         Geometry.Parse(icons.Resolve(node.Definition.IconKey ?? StandardIconKeys.Application).SvgPathData),
         node.IsNavigable, CreateViews(node.Children, node.Definition.NodeId),
-        expandedNodeIds.Contains(node.Definition.NodeId),
+        session.IsExpanded(node.Definition.NodeId),
         SelectedNodeId?.Equals(node.Definition.NodeId, StringComparison.OrdinalIgnoreCase) == true);
 
     private void TreeSelectionChanged(object? sender, SelectionChangedEventArgs e)
@@ -198,8 +208,7 @@ public sealed partial class DynamicTreeHost : UserControl
         if (applyingSelection || Tree.SelectedItem is not TreeNodeView selected) return;
         foreach (var node in Flatten(Tree.ItemsSource as IEnumerable<ITreeItemView>).OfType<TreeNodeView>())
             node.IsSelected = ReferenceEquals(node, selected);
-        SelectedNodeId = selected.Definition.NodeId;
-        SelectedWorkspaceId = selected.IsEnabled ? selected.Definition.WorkspaceId : null;
+        session.Select(selected.Definition.NodeId, selected.IsEnabled ? selected.Definition.WorkspaceId : null);
         if (selected.IsEnabled) NodeSelected?.Invoke(this, new(selected.Definition));
     }
 
@@ -233,7 +242,7 @@ public sealed partial class DynamicTreeHost : UserControl
                 ? label.StartsWith(query, StringComparison.Ordinal) || code.StartsWith(query, StringComparison.Ordinal)
                 : label.Contains(query, StringComparison.Ordinal) || code.Contains(query, StringComparison.Ordinal);
             if (!matches && children.Length == 0) return null;
-            if (children.Length > 0) expandedNodeIds.Add(node.Definition.NodeId);
+            if (children.Length > 0) session.SetExpanded(node.Definition.NodeId, true);
             return node with { Children = children };
         }
         visible = resolved.Select(Visit).Where(x => x is not null).Cast<ResolvedTreeNode>().ToImmutableArray();
@@ -254,7 +263,7 @@ public sealed partial class DynamicTreeHost : UserControl
             {
                 overflow.EnsureVisible(parentNodeId, index, nodes.Length);
                 if (!node.Definition.NodeId.Equals(nodeId, StringComparison.OrdinalIgnoreCase))
-                    expandedNodeIds.Add(node.Definition.NodeId);
+                    session.SetExpanded(node.Definition.NodeId, true);
                 return true;
             }
         }
@@ -283,9 +292,21 @@ public sealed partial class DynamicTreeHost : UserControl
     {
         foreach (var node in Flatten(Tree.ItemsSource as IEnumerable<ITreeItemView>).OfType<TreeNodeView>())
         {
-            if (node.IsExpanded) expandedNodeIds.Add(node.Definition.NodeId);
-            else expandedNodeIds.Remove(node.Definition.NodeId);
+            session.SetExpanded(node.Definition.NodeId, node.IsExpanded);
         }
+    }
+
+    private void ApplyDensity()
+    {
+        var token = appearance?.Current.GridDensity switch
+        {
+            GridDensityPreference.Compact => "DuiControlHeightCompact",
+            GridDensityPreference.Large => "DuiControlHeightLarge",
+            _ => "DuiControlHeightStandard",
+        };
+        var height = Application.Current?.TryFindResource(token, out var value) == true && value is double number
+            ? number : token == "DuiControlHeightCompact" ? 28 : token == "DuiControlHeightLarge" ? 40 : 34;
+        Resources["DuiNavigationRowHeight"] = height * (appearance?.Current.UiScale ?? 1d);
     }
 
     private static IEnumerable<ITreeItemView> Flatten(IEnumerable<ITreeItemView>? nodes) => (nodes ?? [])
@@ -306,6 +327,7 @@ public sealed class TreeNodeView(TreeNodeDefinition definition, string label, Ge
     private bool expanded = isExpanded;
     private bool selected = isSelected;
     public bool IsDisabled => !IsEnabled;
+    public bool HasChildren => Children.Count > 0;
     public bool IsExpanded { get => expanded; set => Set(ref expanded, value); }
     public bool IsSelected { get => selected; set => Set(ref selected, value); }
     public event PropertyChangedEventHandler? PropertyChanged;

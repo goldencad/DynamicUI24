@@ -297,7 +297,7 @@ public sealed class ArchitectureBoundaryTests
         var setupHost = File.ReadAllText(Path.Combine(RepositoryRoot, "src", "DynamicUI24.Avalonia", "Presentation",
             "SetupWorkspaceHost.cs"));
         Assert.DoesNotContain("#", treeXaml, StringComparison.Ordinal);
-        Assert.All(new[] { "DuiHoverBrush", "DuiSelectionBrush", "DuiSelectionHoverBrush", "DuiFocusBrush", "DuiDisabledSurfaceBrush" },
+        Assert.All(new[] { "DuiHoverBrush", "DuiSelectionBrush", "DuiSelectionHoverBrush", "DuiFocusBrush" },
             token => Assert.Contains(token, treeXaml, StringComparison.Ordinal));
         Assert.Contains("DynamicTreeHost", setupHost, StringComparison.Ordinal);
         Assert.DoesNotContain("SetupTreeRow", setupHost, StringComparison.Ordinal);
