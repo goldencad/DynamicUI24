@@ -6,11 +6,36 @@ namespace DynamicUI24.Core.DataEntry;
 public sealed partial class DataEntryGridRuntime
 {
     private GridViewPreference? viewPreference;
+    private IGridViewPreferenceStore? preferenceStore;
+    private GridPreferenceScope? preferenceScope;
+    private Task pendingPreferenceSave = Task.CompletedTask;
 
     public GridViewResolution View => GridViewPreferenceResolver.Resolve(ResolvedDefinition, viewPreference);
     public ImmutableArray<GridPresentedColumn> PresentedColumns => View.VisibleColumns;
     public GridViewPreference CurrentViewPreference => View.RepairedPreference;
     public GridFindScope? RememberedFindScope => CurrentViewPreference.FindScope;
+
+    public void ConfigurePreferencePersistence(IGridViewPreferenceStore store, GridPreferenceScope scope)
+    {
+        preferenceStore = store ?? throw new ArgumentNullException(nameof(store));
+        preferenceScope = scope ?? throw new ArgumentNullException(nameof(scope));
+    }
+
+    public Task FlushPreferencePersistenceAsync() => pendingPreferenceSave;
+
+    internal void MutateViewPreference(Func<GridViewPreference, GridViewPreference> mutation, string reason)
+    {
+        viewPreference = GridViewPreferenceResolver.Resolve(ResolvedDefinition,
+            mutation(CurrentViewPreference)).RepairedPreference;
+        OnChanged(reason);
+        if (preferenceStore is { } store && preferenceScope is { } scope)
+        {
+            var snapshot = CurrentViewPreference with { Sorts = Sorts };
+            pendingPreferenceSave = pendingPreferenceSave.ContinueWith(async _ =>
+                await store.SaveAsync(scope, snapshot).ConfigureAwait(false), CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default).Unwrap();
+        }
+    }
 
     public void RememberFindScope(GridFindScope scope)
     {

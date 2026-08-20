@@ -28,6 +28,7 @@ public sealed partial class DataEntryGridRuntime
     private readonly GridWindowCache windowCache;
     private CancellationTokenSource? activeRequest;
     private long generation;
+    private int providerRequestCount;
     private GridProviderContext? context;
     private EffectiveAuthorizationContext? authorization;
     private readonly GridEditHistory editHistory;
@@ -79,6 +80,7 @@ public sealed partial class DataEntryGridRuntime
     public int CachedWindowCount => windowCache.WindowCount;
     public int CachedRowCount => windowCache.RowCount;
     public long Generation => Volatile.Read(ref generation);
+    public int ProviderRequestCount => Volatile.Read(ref providerRequestCount);
     public string? DiagnosticCode { get; private set; }
     public int SelectionCount => SelectedRowKeys.Count;
     public int SelectedCellCount => GetSelectedCellCount();
@@ -103,7 +105,7 @@ public sealed partial class DataEntryGridRuntime
     }
 
     public async Task LoadAsync(GridProviderContext newContext, EffectiveAuthorizationContext? authorization,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, int? initialViewportRowCount = null)
     {
         ArgumentNullException.ThrowIfNull(newContext);
         var contextChanged = context is null || context.Company.CompanyId != newContext.Company.CompanyId ||
@@ -120,7 +122,10 @@ public sealed partial class DataEntryGridRuntime
         if (viewportProvider is not null)
         {
             await RequestViewportAsync(contextChanged ? 0 : RequestedViewportStartIndex,
-                RequestedViewportRowCount > 0 ? RequestedViewportRowCount : ViewportOptions.VisibleRowCount,
+                RequestedViewportRowCount > 0 ? RequestedViewportRowCount : initialViewportRowCount is > 0
+                    ? Math.Min(initialViewportRowCount.Value, ViewportOptions.MaximumMaterializedRows -
+                        ViewportOptions.OverscanBefore - ViewportOptions.OverscanAfter)
+                    : ViewportOptions.VisibleRowCount,
                 cancellationToken).ConfigureAwait(false);
             return;
         }
@@ -129,6 +134,7 @@ public sealed partial class DataEntryGridRuntime
         State = GridProviderState.Loading; DiagnosticCode = null; OnChanged("LOADING");
         try
         {
+            Interlocked.Increment(ref providerRequestCount);
             var result = await provider.LoadAsync(newContext, new(Sorts, Filters, requestGeneration), requestToken)
                 .ConfigureAwait(false);
             if (requestGeneration != Volatile.Read(ref generation)) return;
@@ -175,6 +181,7 @@ public sealed partial class DataEntryGridRuntime
         DiagnosticCode = null; OnChanged(initialLoad ? "VIEWPORT_LOADING" : "VIEWPORT_FETCHING");
         try
         {
+            Interlocked.Increment(ref providerRequestCount);
             var result = await viewportProvider.LoadViewportAsync(context, request, requestToken).ConfigureAwait(false);
             if (requestGeneration != Volatile.Read(ref generation)) return;
             if (result.RequestGeneration != requestGeneration) { ApplyViewportFailure("GRID_VIEWPORT_GENERATION_INVALID"); return; }
@@ -190,6 +197,33 @@ public sealed partial class DataEntryGridRuntime
         catch (OperationCanceledException) when (requestGeneration != Volatile.Read(ref generation)) { }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch { if (requestGeneration == Volatile.Read(ref generation)) ApplyViewportFailure("GRID_PROVIDER_FAILED"); }
+    }
+
+    /// <summary>Warms a bounded adjacent/target window without changing visible state or cancelling the active request.</summary>
+    public async Task PrefetchViewportAsync(int startIndex, int requestedRowCount,
+        CancellationToken cancellationToken = default)
+    {
+        if (viewportProvider is null || context is null) return;
+        ArgumentOutOfRangeException.ThrowIfNegative(startIndex);
+        if (requestedRowCount <= 0 ||
+            (long)requestedRowCount + ViewportOptions.OverscanBefore + ViewportOptions.OverscanAfter >
+                ViewportOptions.MaximumMaterializedRows)
+            throw new ArgumentOutOfRangeException(nameof(requestedRowCount));
+        var boundedStart = TotalRows > 0 ? Math.Min(startIndex, Math.Max(0, TotalRows - 1)) : startIndex;
+        var key = new GridWindowKey(boundedStart, requestedRowCount);
+        if (windowCache.TryGet(key, out _)) return;
+        var capturedContext = context;
+        var capturedGeneration = Volatile.Read(ref generation);
+        var request = new GridViewportRequest(boundedStart, requestedRowCount,
+            ViewportOptions.OverscanBefore, ViewportOptions.OverscanAfter, Sorts, Filters, capturedGeneration);
+        Interlocked.Increment(ref providerRequestCount);
+        var result = await viewportProvider.LoadViewportAsync(capturedContext, request, cancellationToken).ConfigureAwait(false);
+        if (capturedGeneration != Volatile.Read(ref generation) || context is null ||
+            context.Company.CompanyId != capturedContext.Company.CompanyId ||
+            !context.WorkspaceId.Equals(capturedContext.WorkspaceId, StringComparison.OrdinalIgnoreCase) ||
+            result.RequestGeneration != capturedGeneration || result.State != GridProviderState.Ready ||
+            !IsValid(result, request)) return;
+        windowCache.Set(key, result);
     }
 
     public Task RetryViewportAsync(CancellationToken cancellationToken = default) => viewportProvider is null

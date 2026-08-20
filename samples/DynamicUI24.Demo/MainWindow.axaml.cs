@@ -57,6 +57,10 @@ public sealed partial class MainWindow : Window
     private readonly DynamicRibbonHost ribbonHost;
     private readonly DynamicTreeHost treeHost;
     private readonly DynamicTreeResolver treeResolver = new();
+    private readonly IGridViewPreferenceStore gridPreferences = new InMemoryGridViewPreferenceStore();
+    private readonly GridPreferenceScope dataEntryPreferenceScope =
+        new(GridPreferenceScopeKind.UserGrid, "demo-user", "DEMO_ACTIVITY");
+    private bool dataEntryPreferenceRestored;
     private readonly DynamicActionBarResolver actionBarResolver = new();
     private readonly WorkspaceActionBarDefinitions actionBarDefinitions = DemoActionBars.Create();
     private readonly WorkspaceNavigationService workspaceNavigation;
@@ -131,6 +135,8 @@ public sealed partial class MainWindow : Window
         shellPresentation = new ShellPresentation(
             new ApplicationBrand("Framework Demo", DemoLogoKey, "#7C3AED"));
         workspaceHost = new DynamicUI24.Avalonia.DynamicWorkspaceHost(composition.Registry, localization);
+        workspaceHost.HorizontalContentAlignment = HorizontalAlignment.Stretch;
+        workspaceHost.VerticalContentAlignment = VerticalAlignment.Stretch;
         var setupProvider = new DemoSetupProvider();
         setupWorkspaceHost = new SetupWorkspaceHost(DemoSetup.Categories, setupProvider,
             new SpecializedSetupValidator(setupProvider, composition.Registry), DemoSetup.CreateEditors(composition.Registry, setupProvider), localization, iconRegistry,
@@ -321,6 +327,7 @@ public sealed partial class MainWindow : Window
                 privacyState: privacyState, sensitiveValuePresenter: sensitiveValuePresenter),
             localization, appearanceService, privacyResolver: privacyResolver, privacyState: privacyState,
             sensitivePresenter: sensitiveValuePresenter);
+        dataEntryGridHost.Runtime.ConfigurePreferencePersistence(gridPreferences, dataEntryPreferenceScope);
         multiSheetWorkspace = new(dataEntryGridHost, dataEntryProvider, localization, appearanceService, privacyState,
             privacyResolver, sensitiveValuePresenter, companyContext.CurrentCompany, () =>
             {
@@ -329,15 +336,26 @@ public sealed partial class MainWindow : Window
             });
         importExportHost = new ImportExportWorkspaceHost(localization);
         importExportHost.ShowProfiles(DemoImportExport.ImportProfiles, DemoImportExport.ExportProfiles);
+        var dataTab = new TabItem { Header = "Multi-Sheet Data", Content = multiSheetWorkspace.View,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            VerticalContentAlignment = VerticalAlignment.Stretch };
+        var importTab = new TabItem { Header = "Import / Export" };
+        var privacyTab = new TabItem { Header = "Privacy" };
         dataEntryTabs = new TabControl
         {
-            ItemsSource = new object[]
-            {
-                new TabItem { Header = "Multi-Sheet Data", Content = multiSheetWorkspace.View },
-                new TabItem { Header = "Import / Export", Content = importExportHost },
-                new TabItem { Header = "Privacy", Content = new DemoPrivacyPanel(privacyState) },
-            },
+            ItemsSource = new object[] { dataTab, importTab, privacyTab },
             SelectedIndex = 0,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            VerticalContentAlignment = VerticalAlignment.Stretch,
+        };
+        dataEntryTabs.SelectionChanged += (_, _) =>
+        {
+            if (dataEntryTabs.SelectedIndex == 1 && importTab.Content is null)
+            {
+                importTab.Content = importExportHost;
+            }
+            else if (dataEntryTabs.SelectedIndex == 2 && privacyTab.Content is null)
+                privacyTab.Content = new DemoPrivacyPanel(privacyState);
         };
         dataEntryGridHost.Changed += (_, _) =>
         {
@@ -893,8 +911,25 @@ public sealed partial class MainWindow : Window
         ? ActionCommandResult.Success($"{result.AppliedCellCount} cell(s)")
         : ActionCommandResult.Unavailable(result.DiagnosticCode);
 
-    private Task LoadDataEntryAsync(CompanyDescriptor company, EffectiveAuthorizationContext? effectiveAuthorization)
-        => multiSheetWorkspace.UpdateContextAsync(company, effectiveAuthorization);
+    private async Task LoadDataEntryAsync(CompanyDescriptor company, EffectiveAuthorizationContext? effectiveAuthorization)
+    {
+        if (!dataEntryPreferenceRestored)
+        {
+            dataEntryPreferenceRestored = true;
+            await dataEntryGridHost.Runtime.RestoreViewAsync(gridPreferences, dataEntryPreferenceScope);
+        }
+        await multiSheetWorkspace.UpdateContextAsync(company, effectiveAuthorization);
+        if (dataEntryGridHost.LastActivationTiming is { } timing)
+        {
+            var horizontal = dataEntryGridHost.HorizontalScrollMetrics;
+            Console.WriteLine($"GRID_ACTIVATION shell={timing.WorkspaceVisible.TotalMilliseconds:F3}ms " +
+                $"rows={timing.DataAvailable.TotalMilliseconds:F3}ms interactive={timing.InteractiveReady.TotalMilliseconds:F3}ms " +
+                $"stable={timing.StableLayout.TotalMilliseconds:F3}ms requests={timing.ProviderRequests} " +
+                $"rebuilds={timing.Rebuilds} materialized={timing.MaterializedRows} " +
+                $"horizontal-extent={horizontal.ExtentWidth:F3} viewport={horizontal.ViewportWidth:F3} " +
+                $"maximum={horizontal.Maximum:F3} offset-x={horizontal.OffsetX:F3}");
+        }
+    }
 
     private void NavigateFromRibbon(WorkspaceDefinition workspace)
     {
@@ -1353,6 +1388,34 @@ public sealed partial class MainWindow : Window
             throw new InvalidOperationException("100K logical count or bounded initial viewport failed.");
         Console.WriteLine($"SMOKE GRID_RENDER: PASS COLUMNS={dataEntryGridHost.RenderedColumnCount} ROWS={dataEntryGridHost.RenderedRowCount}");
         Console.WriteLine($"SMOKE GRID_100K_INITIAL: TOTAL={runtime.TotalRows} MATERIALIZED={runtime.Rows.Length} PASS");
+        var horizontal = dataEntryGridHost.HorizontalScrollMetrics;
+        if (horizontal.ExtentWidth <= horizontal.ViewportWidth || horizontal.Maximum <= 0 ||
+            !dataEntryGridHost.ScrollHorizontallyTo(horizontal.Maximum) ||
+            Math.Abs(dataEntryGridHost.HorizontalScrollMetrics.OffsetX - dataEntryGridHost.ColumnHeaderHorizontalOffset) > .1)
+            throw new InvalidOperationException("Horizontal Grid extent, offset, or header synchronization failed.");
+        Console.WriteLine($"SMOKE GRID_HORIZONTAL: PASS EXTENT={horizontal.ExtentWidth:F3} " +
+            $"VIEWPORT={horizontal.ViewportWidth:F3} MAXIMUM={horizontal.Maximum:F3} " +
+            $"OFFSET={dataEntryGridHost.HorizontalScrollMetrics.OffsetX:F3}");
+        dataEntryGridHost.ScrollHorizontallyTo(0);
+        var originalSize = ClientSize;
+        foreach (var (label, width, height) in new[]
+        {
+            ("LARGE", 1440d, 900d), ("MEDIUM", 1100d, 760d), ("NARROW", 900d, 640d),
+        })
+        {
+            Width = width; Height = height;
+            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Render);
+            await Task.Delay(240);
+            if (dataEntryGridHost.Bounds.Height > workspaceHost.Bounds.Height + .5 ||
+                dataEntryGridHost.GridViewportHeight <= 0 ||
+                runtime.Rows.Length > runtime.ViewportOptions.MaximumMaterializedRows)
+                throw new InvalidOperationException($"Workspace-bounded Grid failed at {label} size.");
+            Console.WriteLine($"SMOKE GRID_WORKSPACE_{label}: PASS HOST={dataEntryGridHost.Bounds.Height:F3} " +
+                $"WORKSPACE={workspaceHost.Bounds.Height:F3} VIEWPORT={dataEntryGridHost.GridViewportHeight:F3} " +
+                $"ROWS={runtime.Rows.Length}");
+        }
+        Width = originalSize.Width; Height = originalSize.Height;
+        await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Render);
 
         var first = runtime.Rows[0]; var second = runtime.Rows[1];
         var layoutRows = runtime.Rows.Length;

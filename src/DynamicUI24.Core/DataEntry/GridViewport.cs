@@ -6,7 +6,7 @@ namespace DynamicUI24.Core.DataEntry;
 public sealed record GridViewportOptions
 {
     public GridViewportOptions(int visibleRowCount = 60, int overscanBefore = 20, int overscanAfter = 20,
-        int maximumCachedWindows = 3, int maximumMaterializedRows = 300)
+        int maximumCachedWindows = 3, int maximumMaterializedRows = 128)
     {
         if (visibleRowCount <= 0) throw new ArgumentOutOfRangeException(nameof(visibleRowCount));
         ArgumentOutOfRangeException.ThrowIfNegative(overscanBefore);
@@ -87,33 +87,40 @@ internal readonly record struct GridWindowKey(int StartIndex, int RequestedRowCo
 /// <summary>Least-recently-used cache bounded by both window count and the per-window materialization guard.</summary>
 internal sealed class GridWindowCache
 {
+    private readonly object sync = new();
     private readonly int capacity;
     private readonly Dictionary<GridWindowKey, LinkedListNode<(GridWindowKey Key, GridViewportResult Value)>> entries = [];
     private readonly LinkedList<(GridWindowKey Key, GridViewportResult Value)> recency = [];
 
     public GridWindowCache(int capacity) => this.capacity = capacity;
-    public int WindowCount => entries.Count;
-    public int RowCount => entries.Values.Sum(x => x.Value.Value.Rows.Length);
+    public int WindowCount { get { lock (sync) return entries.Count; } }
+    public int RowCount { get { lock (sync) return entries.Values.Sum(x => x.Value.Value.Rows.Length); } }
 
     public bool TryGet(GridWindowKey key, out GridViewportResult result)
     {
-        if (!entries.TryGetValue(key, out var node)) { result = default!; return false; }
-        recency.Remove(node); recency.AddFirst(node); result = node.Value.Value; return true;
+        lock (sync)
+        {
+            if (!entries.TryGetValue(key, out var node)) { result = default!; return false; }
+            recency.Remove(node); recency.AddFirst(node); result = node.Value.Value; return true;
+        }
     }
 
     public void Set(GridWindowKey key, GridViewportResult value)
     {
-        if (entries.Remove(key, out var existing)) recency.Remove(existing);
-        var node = recency.AddFirst((key, value)); entries[key] = node;
-        while (entries.Count > capacity)
+        lock (sync)
         {
-            var last = recency.Last!; recency.RemoveLast(); entries.Remove(last.Value.Key);
+            if (entries.Remove(key, out var existing)) recency.Remove(existing);
+            var node = recency.AddFirst((key, value)); entries[key] = node;
+            while (entries.Count > capacity)
+            {
+                var last = recency.Last!; recency.RemoveLast(); entries.Remove(last.Value.Key);
+            }
         }
     }
 
     public void UpdateCell(RowKey rowKey, DynamicUI24.Core.Setup.VariableCode variableCode, object? value)
     {
-        foreach (var node in entries.Values)
+        lock (sync) foreach (var node in entries.Values)
         {
             var index = -1;
             for (var candidate = 0; candidate < node.Value.Value.Rows.Length; candidate++)
@@ -126,5 +133,5 @@ internal sealed class GridWindowCache
         }
     }
 
-    public void Clear() { entries.Clear(); recency.Clear(); }
+    public void Clear() { lock (sync) { entries.Clear(); recency.Clear(); } }
 }

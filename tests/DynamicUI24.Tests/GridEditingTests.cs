@@ -107,6 +107,26 @@ public sealed class GridEditingTests
     }
 
     [Fact]
+    public async Task NeutralRowHeightCommandsMutatePreferenceAndRowNumberVisibility()
+    {
+        var provider = Provider(2); var runtime = Runtime(provider); await runtime.LoadAsync(ContextA, null);
+        var store = new InMemoryGridViewPreferenceStore();
+        var scope = new GridPreferenceScope(GridPreferenceScopeKind.UserGrid, "user", runtime.Definition.GridCode);
+        runtime.ConfigurePreferencePersistence(store, scope);
+        runtime.ExecuteRowHeightCommand(GridRowHeightCommands.Choices.Single(x => x.Percentage == 125));
+        Assert.Equal(125, runtime.RowHeightScalePercent);
+        runtime.ExecuteRowHeightCommand(GridRowHeightCommands.Choices.Single(x => x.Kind == GridRowHeightCommandKind.Decrease));
+        Assert.Equal(115, runtime.RowHeightScalePercent);
+        runtime.SetRowNumbersVisible(false);
+        Assert.False(runtime.ShowRowNumbers);
+        Assert.False(runtime.CurrentViewPreference.ShowRowNumbers);
+        await runtime.FlushPreferencePersistenceAsync();
+        var saved = await store.LoadAsync(scope);
+        Assert.Equal(115, saved!.RowHeightScalePercent);
+        Assert.False(saved.ShowRowNumbers);
+    }
+
+    [Fact]
     public async Task PasteSupportsSingleFillMatchingAndExactTileThenUndoRedo()
     {
         var provider = Provider(4); var runtime = Runtime(provider); await runtime.LoadAsync(ContextA, null);
@@ -225,6 +245,26 @@ public sealed class GridEditingTests
     }
 
     [Fact]
+    public async Task BoundedPrefetchWarmsNextWindowWithoutChangingVisibleState()
+    {
+        var provider = new VirtualProvider();
+        var runtime = new DataEntryGridRuntime(Definition(), provider, new(5, 2, 2, 3, 12));
+        await runtime.LoadAsync(ContextA, null);
+        var visibleStart = runtime.RequestedViewportStartIndex;
+        var visibleRows = runtime.Rows;
+
+        await runtime.PrefetchViewportAsync(5, 5);
+
+        Assert.Equal(visibleStart, runtime.RequestedViewportStartIndex);
+        Assert.Equal(visibleRows, runtime.Rows);
+        Assert.Equal(2, provider.RequestCount);
+        await runtime.RequestViewportAsync(5, 5);
+        Assert.Equal(2, provider.RequestCount);
+        Assert.True(runtime.Rows.Length <= runtime.ViewportOptions.MaximumMaterializedRows);
+        Assert.True(runtime.CachedRowCount <= 3 * runtime.ViewportOptions.MaximumMaterializedRows);
+    }
+
+    [Fact]
     public async Task FormulaAndSystemRemainSelectableCopyableButAllMutationPathsRejectThem()
     {
         var provider = Provider(3); var runtime = Runtime(provider); await runtime.LoadAsync(ContextA, null);
@@ -317,13 +357,18 @@ public sealed class GridEditingTests
     private sealed class VirtualProvider : IVirtualizedGridDataProvider, IGridLogicalRowProvider, IGridBatchEditProvider
     {
         public int LastBatchSize { get; private set; }
+        public int RequestCount { get; private set; }
         public Task<GridDataResult> LoadAsync(GridProviderContext context, GridDataRequest request, CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
         public Task<GridCommitResult> CommitAsync(GridProviderContext context, GridCellEdit edit, CancellationToken cancellationToken = default) =>
             Task.FromResult(GridCommitResult.Success(edit.CandidateValue));
         public Task<GridViewportResult> LoadViewportAsync(GridProviderContext context, GridViewportRequest request,
-            CancellationToken cancellationToken = default) => Task.FromResult(GridViewportResult.Ready(request,
+            CancellationToken cancellationToken = default)
+        {
+            RequestCount++;
+            return Task.FromResult(GridViewportResult.Ready(request,
                 MakeRows(context, request.MaterializedStartIndex, Math.Min(request.MaterializedRowCount, 20 - request.MaterializedStartIndex)), 20));
+        }
         public Task<ImmutableArray<GridRow>> ResolveRowsAsync(GridProviderContext context, int startPosition, int rowCount,
             ImmutableArray<GridSortDefinition> sorts, ImmutableArray<GridFilterDefinition> filters, long requestGeneration,
             CancellationToken cancellationToken = default) => Task.FromResult(MakeRows(context, startPosition, rowCount));

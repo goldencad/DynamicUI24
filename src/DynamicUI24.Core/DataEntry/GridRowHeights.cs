@@ -2,6 +2,25 @@ using System.Collections.Immutable;
 
 namespace DynamicUI24.Core.DataEntry;
 
+public enum GridRowHeightCommandKind { Decrease, Increase, Set, Reset }
+public sealed record GridRowHeightCommand(GridRowHeightCommandKind Kind, string Label, decimal? Percentage = null);
+
+public static class GridRowHeightCommands
+{
+    public static ImmutableArray<GridRowHeightCommand> Choices { get; } =
+    [
+        new(GridRowHeightCommandKind.Decrease, "Shorter  -10%"),
+        new(GridRowHeightCommandKind.Increase, "Taller  +10%"),
+        new(GridRowHeightCommandKind.Set, "90%", 90),
+        new(GridRowHeightCommandKind.Set, "100% Default", 100),
+        new(GridRowHeightCommandKind.Set, "110%", 110),
+        new(GridRowHeightCommandKind.Set, "125%", 125),
+        new(GridRowHeightCommandKind.Set, "150%", 150),
+        new(GridRowHeightCommandKind.Set, "200%", 200),
+        new(GridRowHeightCommandKind.Reset, "Reset"),
+    ];
+}
+
 /// <summary>Bounds sparse presentation-only row-height overrides; RowKey remains authoritative identity.</summary>
 public sealed record GridRowHeightOptions
 {
@@ -28,6 +47,7 @@ public sealed partial class DataEntryGridRuntime
     public GridRowHeightOptions RowHeightOptions { get; private set; } = new();
     public int RowHeightOverrideCount => rowHeightOverrides.Count;
     public decimal RowHeightScalePercent => CurrentViewPreference.RowHeightScalePercent;
+    public bool ShowRowNumbers => Definition.ShowRowNumbers && CurrentViewPreference.ShowRowNumbers;
     public bool TryGetRowHeight(RowKey rowKey, out decimal height)
     {
         if (rowHeightOverrides.TryGetValue(rowKey, out var value)) { height = value.Height; return true; }
@@ -42,13 +62,32 @@ public sealed partial class DataEntryGridRuntime
 
     public void SetRowHeightPercentage(decimal percentage)
     {
-        viewPreference = CurrentViewPreference with { RowHeightScalePercent = Math.Clamp(percentage, 75m, 300m) };
-        OnChanged("ROW_HEIGHT_PERCENTAGE");
+        MutateViewPreference(x => x with { RowHeightScalePercent = Math.Clamp(percentage, 75m, 300m) },
+            "ROW_HEIGHT_PERCENTAGE");
     }
 
     public void IncreaseRowHeight() => SetRowHeightPercentage(RowHeightScalePercent + 10m);
     public void DecreaseRowHeight() => SetRowHeightPercentage(RowHeightScalePercent - 10m);
     public void ResetRowHeightPercentage() => SetRowHeightPercentage(100m);
+
+    public void ExecuteRowHeightCommand(GridRowHeightCommand command)
+    {
+        ArgumentNullException.ThrowIfNull(command);
+        switch (command.Kind)
+        {
+            case GridRowHeightCommandKind.Decrease: DecreaseRowHeight(); break;
+            case GridRowHeightCommandKind.Increase: IncreaseRowHeight(); break;
+            case GridRowHeightCommandKind.Set when command.Percentage is { } value: SetRowHeightPercentage(value); break;
+            case GridRowHeightCommandKind.Reset: ResetRowHeightPercentage(); break;
+            default: throw new ArgumentException("GRID_ROW_HEIGHT_COMMAND_INVALID", nameof(command));
+        }
+    }
+
+    public void SetRowNumbersVisible(bool visible)
+    {
+        MutateViewPreference(x => x with { ShowRowNumbers = Definition.ShowRowNumbers && visible },
+            "ROW_NUMBERS_VISIBILITY");
+    }
 
     public bool ResizeRow(RowKey rowKey, decimal height)
     {

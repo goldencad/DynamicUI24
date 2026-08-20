@@ -21,6 +21,10 @@ public sealed class SheetHostView : UserControl
         this.contentFactory = contentFactory ?? throw new ArgumentNullException(nameof(contentFactory));
         if (maximumVisibleTabs <= 0) throw new ArgumentOutOfRangeException(nameof(maximumVisibleTabs));
         this.maximumVisibleTabs = maximumVisibleTabs;
+        HorizontalAlignment = HorizontalAlignment.Stretch;
+        VerticalAlignment = VerticalAlignment.Stretch;
+        HorizontalContentAlignment = HorizontalAlignment.Stretch;
+        VerticalContentAlignment = VerticalAlignment.Stretch;
         runtime.Changed += (_, _) => Rebuild(); Rebuild();
     }
 
@@ -28,8 +32,9 @@ public sealed class SheetHostView : UserControl
     {
         // Detach the previous tree before reusing the active adapter control in the replacement tree.
         Content = null;
-        var root = new DockPanel();
-        var tabs = BuildTabs(); DockPanel.SetDock(tabs, runtime.Definition.TabPlacement == SheetTabPlacement.Top ? Dock.Top : Dock.Bottom);
+        var tabsOnTop = runtime.Definition.TabPlacement == SheetTabPlacement.Top;
+        var root = new Grid { RowDefinitions = tabsOnTop ? new RowDefinitions("Auto,*") : new RowDefinitions("*,Auto") };
+        var tabs = BuildTabs(); Grid.SetRow(tabs, tabsOnTop ? 0 : 1);
         root.Children.Add(tabs);
         if (runtime.ActiveSheetCode is { } active)
         {
@@ -39,15 +44,17 @@ public sealed class SheetHostView : UserControl
                 { new TextBlock { Text = model.Title, FontSize = 20, FontWeight = global::Avalonia.Media.FontWeight.SemiBold } } };
             if (!string.IsNullOrWhiteSpace(model.Subtitle)) header.Children.Add(new TextBlock { Text = model.Subtitle, Opacity = .72 });
             AutomationProperties.SetName(header, string.Join(". ", new[] { model.Title, model.Subtitle }.Where(x => !string.IsNullOrWhiteSpace(x))));
-            var body = new DockPanel(); DockPanel.SetDock(header, Dock.Top); body.Children.Add(header);
+            var body = new Grid { RowDefinitions = new RowDefinitions("Auto,*") };
+            Grid.SetRow(header, 0); body.Children.Add(header);
             if (runtime.GetActiveRuntime() is { } value)
             {
                 var activeContent = contentFactory(definition, value);
                 if (activeContent.Parent is Panel previousPanel) previousPanel.Children.Remove(activeContent);
                 else if (activeContent.Parent is ContentControl previousContent) previousContent.Content = null;
-                body.Children.Add(activeContent);
+                activeContent.VerticalAlignment = VerticalAlignment.Stretch;
+                Grid.SetRow(activeContent, 1); body.Children.Add(activeContent);
             }
-            root.Children.Add(body);
+            Grid.SetRow(body, tabsOnTop ? 1 : 0); root.Children.Add(body);
         }
         Content = root;
     }

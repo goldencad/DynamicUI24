@@ -21,7 +21,9 @@ public sealed record GridDefinition
         IEnumerable<GridFilterDefinition>? defaultFilter = null, GridSelectionMode selectionMode = GridSelectionMode.Single,
         bool allowEdit = false, bool allowAdd = false, bool allowDelete = false, bool showRowNumbers = true,
         bool showStatusBar = true, LocalizationKey? emptyStateKey = null,
-        PresentationRequirement? permissionRequirement = null, PresentationRequirement? capabilityRequirement = null)
+        PresentationRequirement? permissionRequirement = null, PresentationRequirement? capabilityRequirement = null,
+        GridPresentationConfiguration? presentation = null,
+        PresentationRequirement? presentationConfigurationRequirement = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(gridId);
         ArgumentException.ThrowIfNullOrWhiteSpace(gridCode);
@@ -34,9 +36,13 @@ public sealed record GridDefinition
         DefaultFilter = (defaultFilter ?? []).ToImmutableArray();
         SelectionMode = selectionMode;
         AllowEdit = allowEdit; AllowAdd = allowAdd; AllowDelete = allowDelete;
-        ShowRowNumbers = showRowNumbers; ShowStatusBar = showStatusBar;
+        Presentation = presentation ?? new(RowNumbersCanBeShown: showRowNumbers, RowNumbersShownByDefault: showRowNumbers);
+        Presentation.Validate();
+        ShowRowNumbers = showRowNumbers && Presentation.RowNumbersCanBeShown;
+        ShowStatusBar = showStatusBar;
         EmptyStateKey = emptyStateKey ?? new("Grid.State.Empty");
         PermissionRequirement = permissionRequirement; CapabilityRequirement = capabilityRequirement;
+        PresentationConfigurationRequirement = presentationConfigurationRequirement;
     }
 
     public string GridId { get; }
@@ -51,9 +57,14 @@ public sealed record GridDefinition
     public bool AllowDelete { get; }
     public bool ShowRowNumbers { get; }
     public bool ShowStatusBar { get; }
+    public GridPresentationConfiguration Presentation { get; }
     public LocalizationKey EmptyStateKey { get; }
     public PresentationRequirement? PermissionRequirement { get; }
     public PresentationRequirement? CapabilityRequirement { get; }
+    public PresentationRequirement? PresentationConfigurationRequirement { get; }
+    public bool CanConfigurePresentation(EffectiveAuthorizationContext? authorization) =>
+        PresentationConfigurationRequirement is { } requirement &&
+        AuthorizationPresentationResolver.Resolve(requirement, authorization) == AuthorizationPresentationState.VisibleEnabled;
 }
 
 public sealed record GridDiagnostic(string Code, string? MetadataId = null);

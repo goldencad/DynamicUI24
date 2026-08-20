@@ -33,7 +33,8 @@ internal static class DemoDataEntry
         };
         return new("demo-data-grid", "DEMO_DATA_GRID", columns, new("Grid.Title"),
             [new(new("ITEM_CODE"), GridSortDirection.Ascending)], selectionMode: GridSelectionMode.Multiple,
-            allowEdit: true, allowAdd: true, allowDelete: true, showRowNumbers: true, showStatusBar: true);
+            allowEdit: true, allowAdd: true, allowDelete: true, showRowNumbers: true, showStatusBar: true,
+            presentation: GridPresentationConfiguration.ForPreset(GridGeometryRole.Minimal));
     }
 
     private static ColumnDefinition Column(string id, string code, string variable, string label, ColumnDataType type,
@@ -80,6 +81,19 @@ internal sealed class DemoDataEntryProvider : IVirtualizedGridDataProvider, IGri
         var descending = request.SortDefinitions.FirstOrDefault()?.Direction == GridSortDirection.Descending;
         var wantedStart = request.MaterializedStartIndex;
         var wantedCount = request.MaterializedRowCount;
+        var hasMutations = inserted.GetValueOrDefault(context.Company.CompanyId)?.Count > 0 ||
+            deleted.GetValueOrDefault(context.Company.CompanyId)?.Count > 0;
+        if (request.FilterDefinitions.Length == 0 && !hasMutations)
+        {
+            var directCount = Math.Min(wantedCount, Math.Max(0, LogicalRowCount - wantedStart));
+            var directRows = Enumerable.Range(wantedStart, directCount)
+                .Select(offset => BuildRow(context.Company, descending ? LogicalRowCount - offset : offset + 1))
+                .ToImmutableArray();
+            Interlocked.Add(ref generatedRowCount, directRows.Length);
+            return new(directRows.Length == 0 ? GridProviderState.Empty : GridProviderState.Ready,
+                wantedStart, directRows, LogicalRowCount, request.RequestGeneration, wantedStart > 0,
+                wantedStart + directRows.Length < LogicalRowCount, $"generated={directRows.Length};indexed=true");
+        }
         var rows = ImmutableArray.CreateBuilder<GridRow>(wantedCount);
         var matched = 0;
         void Consider(GridRow row)

@@ -19,6 +19,11 @@ using GridMetadataColumn = DynamicUI24.Core.Setup.ColumnDefinition;
 
 namespace DynamicUI24.Avalonia.Presentation;
 
+public enum GridActivationStage { WorkspaceVisible, DataAvailable, InteractiveReady }
+public sealed record GridActivationTiming(TimeSpan WorkspaceVisible, TimeSpan DataAvailable,
+    TimeSpan InteractiveReady, TimeSpan StableLayout, int ProviderRequests, int Rebuilds, int MaterializedRows);
+public sealed record GridHorizontalScrollMetrics(double ExtentWidth, double ViewportWidth, double Maximum, double OffsetX);
+
 /// <summary>Metadata-driven table adapter. All data and editing behavior remains in the Avalonia-free runtime.</summary>
 public sealed class DataEntryGridHost : UserControl
 {
@@ -33,23 +38,39 @@ public sealed class DataEntryGridHost : UserControl
     private readonly IMessageService messages;
     private readonly TextBlock stateText = new() { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
     private readonly ScrollViewer scroller = new() { HorizontalScrollBarVisibility = global::Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
-        VerticalScrollBarVisibility = global::Avalonia.Controls.Primitives.ScrollBarVisibility.Auto };
+        VerticalScrollBarVisibility = global::Avalonia.Controls.Primitives.ScrollBarVisibility.Hidden };
+    private readonly ScrollViewer columnHeaderScroller = new()
+    {
+        HorizontalScrollBarVisibility = global::Avalonia.Controls.Primitives.ScrollBarVisibility.Hidden,
+        VerticalScrollBarVisibility = global::Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
+    };
     private readonly ScrollViewer rowHeaderScroller = new()
     {
         HorizontalScrollBarVisibility = global::Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled,
         VerticalScrollBarVisibility = global::Avalonia.Controls.Primitives.ScrollBarVisibility.Hidden,
     };
+    private readonly global::Avalonia.Controls.Primitives.ScrollBar logicalVerticalScrollbar = new()
+    {
+        Orientation = Orientation.Vertical,
+    };
+    private bool updatingLogicalScrollbar;
     private EffectiveAuthorizationContext? authorization;
     private GridProviderContext? context;
     private TextBox? activeEditor;
     private CancellationTokenSource? viewportNavigation;
+    private CancellationTokenSource? viewportPrefetch;
     private CancellationTokenSource? viewportResize;
-    private bool scrollRequestPending;
     private DateTimeOffset scrollRequestsEnabledAt;
     private bool pointerSelecting;
     private GridRangeEndpoint pointerAnchor;
     private ImmutableArray<GridCellRange> pointerRetainedRanges = [];
     private readonly List<(GridCellAddress Address, int Position, Border Presenter, TextBlock? ValuePresenter)> cellPresenters = [];
+    private readonly List<(RowKey RowKey, Border DataRow, Border RowHeader)> rowPresenters = [];
+    private Button? gridActionsButton;
+    private int rebuildCount;
+    private bool activationInProgress;
+    private DateTimeOffset suppressViewportResizeUntil;
+    private bool showingLoadingShell;
     private readonly TextBlock activeValue = new() { TextWrapping = TextWrapping.Wrap, MaxHeight = 120,
         Margin = new Thickness(10, 7), IsVisible = false };
     private readonly Flyout expandedCell = new() { Placement = PlacementMode.BottomEdgeAlignedLeft };
@@ -79,7 +100,16 @@ public sealed class DataEntryGridHost : UserControl
         this.privacyState = privacyState ?? new PrivacyStateService();
         this.sensitivePresenter = sensitivePresenter ?? new SensitiveValuePresenter();
         this.messages = messages ?? new AvaloniaMessageService(() => TopLevel.GetTopLevel(this) as Window);
-        MinHeight = 320;
+        ValidateThemeGeometry();
+        ApplyScrollbarRecipe(scroller);
+        ApplyScrollbarRecipe(logicalVerticalScrollbar);
+        MinWidth = ResourceNumber("DuiGridMinimumViewportWidth", 320);
+        MinHeight = ResourceNumber("DuiGridMinimumViewportHeight", 180);
+        HorizontalAlignment = HorizontalAlignment.Stretch;
+        VerticalAlignment = VerticalAlignment.Stretch;
+        HorizontalContentAlignment = HorizontalAlignment.Stretch;
+        VerticalContentAlignment = VerticalAlignment.Stretch;
+        ClipToBounds = true;
         Focusable = true;
         runtime.Changed += (_, args) => Dispatcher.UIThread.Post(() =>
         {
@@ -92,6 +122,9 @@ public sealed class DataEntryGridHost : UserControl
             {
                 UpdateSelectionPresentation();
             }
+            else if (args.Reason == "ROW_HEIGHT_PERCENTAGE") UpdateMaterializedRowHeights();
+            else if (args.Reason == "VIEWPORT_LOADING" && showingLoadingShell) { }
+            else if (showingLoadingShell && args.Reason is "AUTHORIZATION" or "VIEW_PREFERENCE") { }
             else if (expandedEditing && args.Reason == "EDIT_COMMIT" && args.Cell is { } committedCell)
             {
                 RefreshMaterializedCell(committedCell);
@@ -101,20 +134,44 @@ public sealed class DataEntryGridHost : UserControl
             else if (args.Reason != "EDIT_CANDIDATE" || activeEditor is null) Rebuild();
             Changed?.Invoke(this, EventArgs.Empty);
         });
-        this.privacyState.StateChanged += (_, _) => Dispatcher.UIThread.Post(Rebuild);
+        this.privacyState.StateChanged += (_, _) => Dispatcher.UIThread.Post(() =>
+        {
+            if (!showingLoadingShell) Rebuild();
+        });
         localization.CultureChanged += (_, _) => Rebuild();
         if (appearance is not null) appearance.PreferencesChanged += (_, _) =>
         {
+            ApplyScrollbarRecipe(scroller);
+            ApplyScrollbarRecipe(logicalVerticalScrollbar);
             Rebuild();
             QueueViewportResize();
         };
         scroller.ScrollChanged += (_, _) =>
         {
+            if (Math.Abs(columnHeaderScroller.Offset.X - scroller.Offset.X) > .1)
+                columnHeaderScroller.Offset = new Vector(scroller.Offset.X, 0);
             if (Math.Abs(rowHeaderScroller.Offset.Y - scroller.Offset.Y) > .1)
                 rowHeaderScroller.Offset = new Vector(0, scroller.Offset.Y);
             QueueNextViewportFromScroll();
         };
-        SizeChanged += (_, _) => QueueViewportResize();
+        scroller.PointerWheelChanged += (_, args) =>
+        {
+            // Leave horizontal-dominant trackpad gestures to ScrollViewer's authoritative X offset.
+            if (!runtime.IsVirtualized || Math.Abs(args.Delta.Y) < .01 || Math.Abs(args.Delta.X) >= Math.Abs(args.Delta.Y)) return;
+            var step = Math.Max(1, runtime.RequestedViewportRowCount / 8);
+            NavigateLogicalPosition((int)Math.Round(logicalVerticalScrollbar.Value) -
+                (int)Math.Sign(args.Delta.Y) * step);
+            args.Handled = true;
+        };
+        logicalVerticalScrollbar.ValueChanged += (_, _) =>
+        {
+            if (!updatingLogicalScrollbar)
+                NavigateLogicalPosition((int)Math.Round(logicalVerticalScrollbar.Value));
+        };
+        SizeChanged += (_, _) =>
+        {
+            if (!activationInProgress && DateTimeOffset.UtcNow >= suppressViewportResizeUntil) QueueViewportResize();
+        };
         AddHandler(KeyDownEvent, HandleKeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
         TextInput += HandleTextInput;
         PointerMoved += (_, args) => ContinuePointerSelection(args.GetPosition(this));
@@ -150,21 +207,73 @@ public sealed class DataEntryGridHost : UserControl
         Rebuild();
     }
 
+    protected override Size MeasureOverride(Size availableSize)
+    {
+        var availableHeight = ResolveAvailableWorkspaceHeight(availableSize.Height);
+        var targetHeight = ResolveConfiguredHeight(availableHeight);
+        var measured = base.MeasureOverride(new Size(availableSize.Width, targetHeight));
+        return new Size(measured.Width, targetHeight);
+    }
+
     public DataEntryGridRuntime Runtime => runtime;
     public int RenderedColumnCount => runtime.PresentedColumns.Length;
     public int RenderedRowCount => runtime.Rows.Length;
     public bool HasActiveEditor => activeEditor is not null;
+    public int RebuildCount => rebuildCount;
+    public GridActivationStage ActivationStage { get; private set; } = GridActivationStage.WorkspaceVisible;
+    public GridActivationTiming? LastActivationTiming { get; private set; }
+    public GridHorizontalScrollMetrics HorizontalScrollMetrics => new(scroller.Extent.Width, scroller.Viewport.Width,
+        Math.Max(0, scroller.Extent.Width - scroller.Viewport.Width), scroller.Offset.X);
+    public double ColumnHeaderHorizontalOffset => columnHeaderScroller.Offset.X;
+    public double GridViewportHeight => scroller.Bounds.Height;
     public EditorResolution? LastEditorResolution { get; private set; }
     public event EventHandler? Changed;
 
-    public Task LoadAsync(GridProviderContext providerContext, EffectiveAuthorizationContext? effectiveAuthorization,
+    public bool ScrollHorizontallyTo(double offset)
+    {
+        var maximum = Math.Max(0, scroller.Extent.Width - scroller.Viewport.Width);
+        if (maximum <= 0) return false;
+        var value = Math.Clamp(offset, 0, maximum);
+        scroller.Offset = new Vector(value, scroller.Offset.Y);
+        columnHeaderScroller.Offset = new Vector(value, 0);
+        return Math.Abs(scroller.Offset.X - value) < .1 && Math.Abs(columnHeaderScroller.Offset.X - value) < .1;
+    }
+
+    public async Task LoadAsync(GridProviderContext providerContext, EffectiveAuthorizationContext? effectiveAuthorization,
         CancellationToken cancellationToken = default)
     {
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        var rebuildsBefore = rebuildCount;
+        var requestsBefore = runtime.ProviderRequestCount;
+        activationInProgress = true;
+        ActivationStage = GridActivationStage.WorkspaceVisible;
         CancelViewportResize();
         expandedEditing = false; expandedClosing = true; expandedCell.Hide(); expandedClosing = false;
         context = providerContext;
         authorization = effectiveAuthorization;
-        return runtime.LoadAsync(providerContext, effectiveAuthorization, cancellationToken);
+        if (VisualRoot is not null)
+        {
+            var layoutReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            Dispatcher.UIThread.Post(() => layoutReady.TrySetResult(), DispatcherPriority.Render);
+            await Task.WhenAny(layoutReady.Task, Task.Delay(16, cancellationToken));
+        }
+        var workspaceVisible = clock.Elapsed;
+        var scale = appearance?.Current.UiScale ?? 1d;
+        var viewportHeight = EffectiveViewportHeight();
+        var initialRows = viewportHeight > 0 ? Math.Clamp((int)Math.Ceiling(viewportHeight / DensityHeight(scale)) + 4,
+            Math.Min(20, ViewportRowLimit()), ViewportRowLimit()) : (int?)null;
+        await runtime.LoadAsync(providerContext, effectiveAuthorization, cancellationToken, initialRows).ConfigureAwait(false);
+        ActivationStage = GridActivationStage.DataAvailable;
+        var dataAvailable = clock.Elapsed;
+        if (VisualRoot is not null)
+            await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Render, cancellationToken);
+        ActivationStage = GridActivationStage.InteractiveReady;
+        var interactiveReady = clock.Elapsed;
+        clock.Stop();
+        suppressViewportResizeUntil = DateTimeOffset.UtcNow.AddMilliseconds(500);
+        activationInProgress = false;
+        LastActivationTiming = new(workspaceVisible, dataAvailable, interactiveReady, interactiveReady,
+            runtime.ProviderRequestCount - requestsBefore, rebuildCount - rebuildsBefore, runtime.Rows.Length);
     }
 
     public void UpdateAuthorization(EffectiveAuthorizationContext? effectiveAuthorization)
@@ -246,15 +355,29 @@ public sealed class DataEntryGridHost : UserControl
 
     private void Rebuild()
     {
+        rebuildCount++;
         activeEditor = null;
         cellPresenters.Clear();
+        rowPresenters.Clear();
         if (activeValue.Parent is Panel previousDetailPanel) previousDetailPanel.Children.Remove(activeValue);
         else if (activeValue.Parent is Border previousDetail) previousDetail.Child = null;
         if (stateText.Parent is Panel statePanel) statePanel.Children.Remove(stateText);
+        else if (stateText.Parent is Border stateBorder) stateBorder.Child = null;
         else if (ReferenceEquals(Content, stateText)) Content = null;
         if (scroller.Parent is Panel previousPanel) previousPanel.Children.Remove(scroller);
         else if (ReferenceEquals(Content, scroller)) Content = null;
+        if (columnHeaderScroller.Parent is Panel previousColumnHeaderPanel) previousColumnHeaderPanel.Children.Remove(columnHeaderScroller);
         if (rowHeaderScroller.Parent is Panel previousHeaderPanel) previousHeaderPanel.Children.Remove(rowHeaderScroller);
+        if (logicalVerticalScrollbar.Parent is Panel previousLogicalScrollbarPanel)
+            previousLogicalScrollbarPanel.Children.Remove(logicalVerticalScrollbar);
+        var loadingShell = runtime.State == GridProviderState.Loading && runtime.Rows.Length == 0;
+        if (loadingShell)
+        {
+            showingLoadingShell = true;
+            Content = new Border { Child = BuildLoadingShell(), Margin = ResolveOuterInset(appearance?.Current.UiScale ?? 1d) };
+            return;
+        }
+        showingLoadingShell = false;
         if (runtime.State != GridProviderState.Ready && runtime.Rows.Length == 0)
         {
             stateText.Text = runtime.State switch
@@ -282,45 +405,92 @@ public sealed class DataEntryGridHost : UserControl
         var scale = appearance?.Current.UiScale ?? 1d;
         var stack = new StackPanel { Spacing = 0 };
         var rowHeaders = new StackPanel { Spacing = 0 };
-        stack.Children.Add(BuildHeader(columns, scale));
-        rowHeaders.Children.Add(BuildRowHeaderHeading(scale));
         for (var index = 0; index < runtime.Rows.Length; index++)
         {
-            stack.Children.Add(BuildRow(runtime.Rows[index], index, columns, scale));
-            rowHeaders.Children.Add(BuildRowHeader(runtime.Rows[index].RowKey,
-                runtime.ViewportStartIndex + index + 1, scale));
+            var dataRow = (Border)BuildRow(runtime.Rows[index], index, columns, scale);
+            var rowHeader = (Border)BuildRowHeader(runtime.Rows[index].RowKey,
+                runtime.ViewportStartIndex + index + 1, scale);
+            stack.Children.Add(dataRow); rowHeaders.Children.Add(rowHeader);
+            rowPresenters.Add((runtime.Rows[index].RowKey, dataRow, rowHeader));
         }
         scroller.Content = stack;
+        columnHeaderScroller.Content = BuildHeader(columns, scale);
         rowHeaderScroller.Content = rowHeaders;
-        scroller.Offset = new Vector(scroller.Offset.X, 0);
-        rowHeaderScroller.Offset = default;
+        var logicalOffset = Math.Max(0, runtime.RequestedViewportStartIndex - runtime.ViewportStartIndex) * DensityHeight(scale);
+        scroller.Offset = new Vector(scroller.Offset.X, logicalOffset);
+        rowHeaderScroller.Offset = new Vector(0, logicalOffset);
         var rebuiltGuard = DateTimeOffset.UtcNow.AddMilliseconds(250);
         if (scrollRequestsEnabledAt < rebuiltGuard) scrollRequestsEnabledAt = rebuiltGuard;
-        var layout = new DockPanel();
+        var layout = new Grid { RowDefinitions = new RowDefinitions("Auto,*,Auto") };
+        var topControls = new StackPanel { Spacing = 0 };
+        var bottomControls = new StackPanel { Spacing = 0 };
         var detailContent = new StackPanel { Children = { activeValue } };
         var detail = new Border { Child = detailContent, BorderThickness = new Thickness(1, 0, 0, 0) };
         detail.Bind(Border.BorderBrushProperty, detail.GetResourceObservable("DuiBorderBrush"));
-        DockPanel.SetDock(detail, Dock.Bottom); layout.Children.Add(detail);
-        var sizing = BuildSizingBar(); DockPanel.SetDock(sizing, Dock.Top); layout.Children.Add(sizing);
+        bottomControls.Children.Add(detail);
+        var sizing = BuildSizingBar();
+        topControls.Children.Add(sizing);
         if (findSurface.Parent is Panel oldFindParent) oldFindParent.Children.Remove(findSurface);
-        DockPanel.SetDock(findSurface, Dock.Top); layout.Children.Add(findSurface);
+        topControls.Children.Add(findSurface);
         if (runtime.IsVirtualized)
         {
             var navigation = BuildViewportNavigation(scale);
-            DockPanel.SetDock(navigation, Dock.Top); layout.Children.Add(navigation);
+            var navigationAtBottom = runtime.Definition.Presentation.NavigationPlacement == GridNavigationPlacement.Bottom ||
+                runtime.Definition.Presentation.NavigationPlacement == GridNavigationPlacement.Auto && Bounds.Width < 640;
+            (navigationAtBottom ? bottomControls : topControls).Children.Add(navigation);
         }
-        var gridSurface = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*") };
-        Grid.SetColumn(rowHeaderScroller, 0); Grid.SetColumn(scroller, 1);
+        var gridSurface = new Grid
+        {
+            ColumnDefinitions = runtime.ShowRowNumbers ? new ColumnDefinitions("Auto,*,Auto") : new ColumnDefinitions("0,*,Auto"),
+            RowDefinitions = new RowDefinitions("Auto,*"),
+        };
+        rowHeaderScroller.IsVisible = runtime.ShowRowNumbers;
+        var corner = BuildRowHeaderHeading(scale); corner.IsVisible = runtime.ShowRowNumbers;
+        Grid.SetColumn(corner, 0); Grid.SetRow(corner, 0);
+        Grid.SetColumn(columnHeaderScroller, 1); Grid.SetRow(columnHeaderScroller, 0);
+        Grid.SetColumn(rowHeaderScroller, 0); Grid.SetRow(rowHeaderScroller, 1);
+        Grid.SetColumn(scroller, 1); Grid.SetRow(scroller, 1);
+        updatingLogicalScrollbar = true;
+        logicalVerticalScrollbar.Minimum = 0;
+        logicalVerticalScrollbar.Maximum = Math.Max(0, runtime.TotalRows - Math.Max(1, runtime.RequestedViewportRowCount));
+        logicalVerticalScrollbar.ViewportSize = Math.Max(1, runtime.RequestedViewportRowCount);
+        logicalVerticalScrollbar.SmallChange = Math.Max(1, runtime.RequestedViewportRowCount / 8);
+        logicalVerticalScrollbar.LargeChange = Math.Max(1, runtime.RequestedViewportRowCount);
+        logicalVerticalScrollbar.Value = Math.Min(logicalVerticalScrollbar.Maximum, runtime.RequestedViewportStartIndex);
+        logicalVerticalScrollbar.MinWidth = ResourceNumber(GridThemeResourceKeys.ScrollbarHitTarget, 14) * scale;
+        updatingLogicalScrollbar = false;
+        Grid.SetColumn(logicalVerticalScrollbar, 2); Grid.SetRow(logicalVerticalScrollbar, 1);
+        gridSurface.Children.Add(corner); gridSurface.Children.Add(columnHeaderScroller);
         gridSurface.Children.Add(rowHeaderScroller); gridSurface.Children.Add(scroller);
-        layout.Children.Add(gridSurface);
-        Content = layout;
+        gridSurface.Children.Add(logicalVerticalScrollbar);
+        var scrollbarClearance = RoleNumber("DuiGridScrollbarClearance",
+            runtime.Definition.Presentation.ScrollbarClearance, 2) * scale;
+        var frame = new Border { Child = gridSurface, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4),
+            Margin = new Thickness(0, 0, scrollbarClearance, scrollbarClearance) };
+        frame.Bind(Border.BorderBrushProperty, frame.GetResourceObservable("DuiBorderBrush"));
+        Grid.SetRow(topControls, 0); Grid.SetRow(frame, 1); Grid.SetRow(bottomControls, 2);
+        layout.Children.Add(topControls); layout.Children.Add(frame); layout.Children.Add(bottomControls);
+        Content = new Border { Child = layout, Margin = ResolveOuterInset(scale) };
         UpdateSelectionPresentation();
+    }
+
+    private Control BuildLoadingShell()
+    {
+        stateText.Text = localization.Get(new("Grid.State.Loading"));
+        AutomationProperties.SetName(stateText, stateText.Text);
+        var toolbar = new Border { Height = ResourceNumber("DuiControlHeightStandard", 34),
+            Margin = ResourceThickness("DuiGridActionsMargin", new Thickness(0, 0, 0, 2)) };
+        toolbar.Bind(Border.BackgroundProperty, toolbar.GetResourceObservable("DuiGridRowHeaderBrush"));
+        var frame = new Border { Child = stateText, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4) };
+        frame.Bind(Border.BorderBrushProperty, frame.GetResourceObservable("DuiBorderBrush"));
+        var shell = new DockPanel(); DockPanel.SetDock(toolbar, Dock.Top); shell.Children.Add(toolbar); shell.Children.Add(frame);
+        return shell;
     }
 
     private Control BuildHeader(IReadOnlyList<ResolvedGridColumn> columns, double scale)
     {
         var grid = CreateColumns(columns, scale);
-        grid.MinHeight = 38 * scale;
+        grid.MinHeight = RoleNumber("DuiGridHeader", runtime.Definition.Presentation.HeaderHeight, 38) * scale;
         const int columnOffset = 0;
         for (var index = 0; index < columns.Count; index++)
         {
@@ -349,7 +519,9 @@ public sealed class DataEntryGridHost : UserControl
             AutomationProperties.SetName(dropdown, $"{localization.Get(new(column.Definition.DisplayNameKey))} column menu");
             dropdown.Click += (_, _) => dropdown.ContextMenu?.Open(dropdown);
             header.Children.Add(dropdown);
-            Grid.SetColumn(header, index + columnOffset); grid.Children.Add(header);
+            var separator = new Border { Child = header, BorderThickness = new Thickness(0, 0, 1, 1) };
+            separator.Bind(Border.BorderBrushProperty, separator.GetResourceObservable("DuiBorderBrush"));
+            Grid.SetColumn(separator, index + columnOffset); grid.Children.Add(separator);
         }
         return grid;
     }
@@ -710,12 +882,19 @@ public sealed class DataEntryGridHost : UserControl
 
     private Control BuildSizingBar()
     {
-        var button = new Button { Content = $"Row Height {runtime.RowHeightScalePercent:0}%  ⌄",
-            HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(4, 2), Padding = new Thickness(8, 3) };
-        var rowHeight = BuildRowHeightMenu();
-        var menu = new ContextMenu { ItemsSource = rowHeight.Items };
+        var button = new Button { Content = $"Grid Actions · {runtime.RowHeightScalePercent:0}%  ⌄",
+            HorizontalAlignment = runtime.Definition.Presentation.GridActionsAlignment == GridActionsAlignment.Start
+                ? HorizontalAlignment.Left : HorizontalAlignment.Right,
+            MinHeight = ResourceNumber("DuiControlHeightCompact", 28) };
+        var menu = new ContextMenu();
+        menu.Items.Add(BuildRowHeightMenu());
+        if (runtime.Definition.ShowRowNumbers)
+            menu.Items.Add(Menu($"{(runtime.ShowRowNumbers ? "✓ " : string.Empty)}Show Row Numbers",
+                () => runtime.SetRowNumbersVisible(!runtime.ShowRowNumbers), true));
         button.ContextMenu = menu; button.Click += (_, _) => menu.Open(button);
-        AutomationProperties.SetName(button, "Grid row height menu"); return button;
+        AutomationProperties.SetName(button, "Grid actions menu"); gridActionsButton = button;
+        return new Border { Child = button,
+            Margin = ResourceThickness("DuiGridActionsMargin", new Thickness(0, 0, 0, 2)) };
     }
 
     private ContextMenu BuildCellMenu(Control anchor, GridCellAddress address, int logicalRowPosition,
@@ -786,20 +965,36 @@ public sealed class DataEntryGridHost : UserControl
     private MenuItem BuildRowHeightMenu()
     {
         var menu = new MenuItem { Header = $"Row Height ({runtime.RowHeightScalePercent:0}%)" };
-        menu.Items.Add(Menu("Shorter  -10%", runtime.DecreaseRowHeight, true));
-        menu.Items.Add(Menu("Taller  +10%", runtime.IncreaseRowHeight, true));
-        menu.Items.Add(new Separator());
-        foreach (var percentage in new decimal[] { 90, 100, 110, 125, 150, 200 })
-            menu.Items.Add(Menu($"{percentage:0}%{(percentage == 100 ? " Default" : string.Empty)}" +
-                $"{(runtime.RowHeightScalePercent == percentage ? "  ✓" : string.Empty)}",
-                () => runtime.SetRowHeightPercentage(percentage), true));
+        foreach (var item in BuildRowHeightItems()) menu.Items.Add(item);
+        return menu;
+    }
+
+    private IEnumerable<Control> BuildRowHeightItems()
+    {
+        foreach (var command in GridRowHeightCommands.Choices)
+        {
+            if (command.Kind == GridRowHeightCommandKind.Set && command.Percentage == 90) yield return new Separator();
+            yield return Menu(command.Label + (command.Percentage == runtime.RowHeightScalePercent ? "  ✓" : string.Empty),
+                () => runtime.ExecuteRowHeightCommand(command), true);
+        }
         var custom = new NumericUpDown { Minimum = 75, Maximum = 300, Increment = 10,
             Value = runtime.RowHeightScalePercent, Width = 100 };
         custom.ValueChanged += (_, _) => { if (custom.Value is { } value) runtime.SetRowHeightPercentage(value); };
-        menu.Items.Add(new MenuItem { Header = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6,
-            Children = { new TextBlock { Text = "Custom %" }, custom } } });
-        menu.Items.Add(Menu("Reset", runtime.ResetRowHeightPercentage, true));
-        return menu;
+        yield return new MenuItem { Header = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6,
+            Children = { new TextBlock { Text = "Custom %" }, custom } } };
+    }
+
+    private void UpdateMaterializedRowHeights()
+    {
+        var scale = appearance?.Current.UiScale ?? 1d;
+        foreach (var presenter in rowPresenters)
+        {
+            var height = (double)runtime.ResolveRowHeight(presenter.RowKey, (decimal)(DensityHeight(scale) / scale)) * scale;
+            presenter.DataRow.Height = height; presenter.DataRow.MinHeight = height; presenter.RowHeader.Height = height;
+        }
+        if (gridActionsButton is not null)
+            gridActionsButton.Content = $"Grid Actions · {runtime.RowHeightScalePercent:0}%  ⌄";
+        QueueViewportResize();
     }
 
     private static string PrimaryShortcut(string key) => $"{(OperatingSystem.IsMacOS() ? "Cmd" : "Ctrl")}+{key}";
@@ -949,10 +1144,11 @@ public sealed class DataEntryGridHost : UserControl
 
     private Control BuildRowHeaderHeading(double scale)
     {
-        var border = new Border { Width = 72 * scale, Height = 38 * scale,
+        var border = new Border { Width = ResolveRowHeaderWidth() * scale,
+            Height = RoleNumber("DuiGridHeader", runtime.Definition.Presentation.HeaderHeight, 38) * scale,
             BorderThickness = new Thickness(0, 0, 1, 1) };
         border.Bind(Border.BorderBrushProperty, border.GetResourceObservable("DuiBorderBrush"));
-        border.Bind(Border.BackgroundProperty, border.GetResourceObservable("DuiSurfaceRaisedBrush"));
+        border.Bind(Border.BackgroundProperty, border.GetResourceObservable("DuiGridRowHeaderBrush"));
         AutomationProperties.SetName(border, "Grid corner header"); return border;
     }
 
@@ -982,18 +1178,23 @@ public sealed class DataEntryGridHost : UserControl
         var leading = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
         Grid.SetColumn(label, 0); Grid.SetColumn(action, 1); leading.Children.Add(label); leading.Children.Add(action);
         var height = (double)runtime.ResolveRowHeight(rowKey, (decimal)(DensityHeight(scale) / scale)) * scale;
-        var border = new Border { Child = leading, Width = 72 * scale, Height = height,
+        var border = new Border { Child = leading,
+            Width = ResolveRowHeaderWidth() * scale, Height = height,
             BorderThickness = new Thickness(0, 0, 1, 1) };
         border.Bind(Border.BorderBrushProperty, border.GetResourceObservable("DuiBorderBrush"));
         border.Bind(Border.BackgroundProperty, border.GetResourceObservable(
-            runtime.SelectedRowKeys.Contains(rowKey) ? "DuiSelectionBrush" : "DuiSurfaceRaisedBrush"));
+            runtime.SelectedRowKeys.Contains(rowKey) ? "DuiSelectionBrush" : "DuiGridRowHeaderBrush"));
         return border;
     }
 
     private Control BuildViewportNavigation(double scale)
     {
-        var previous = new Button { Content = "‹", IsEnabled = runtime.HasPreviousViewport, MinWidth = 36 * scale };
-        var next = new Button { Content = "›", IsEnabled = runtime.HasNextViewport, MinWidth = 36 * scale };
+        var compactHeight = ResourceNumber("DuiControlHeightCompact", 28) * scale;
+        var hitTarget = ResourceNumber("DuiHitTargetMinimum", 32) * scale;
+        var previous = new Button { Content = "‹", IsEnabled = runtime.HasPreviousViewport,
+            MinWidth = hitTarget, MinHeight = compactHeight };
+        var next = new Button { Content = "›", IsEnabled = runtime.HasNextViewport,
+            MinWidth = hitTarget, MinHeight = compactHeight };
         var retry = new Button { Content = localization.Get(new("Grid.Retry")), IsVisible = runtime.State == GridProviderState.Error };
         var slider = new Slider { Minimum = 0, Maximum = Math.Max(0, runtime.TotalRows - 1),
             Value = runtime.RequestedViewportStartIndex, TickFrequency = Math.Max(1, runtime.RequestedViewportRowCount),
@@ -1013,11 +1214,144 @@ public sealed class DataEntryGridHost : UserControl
             QueueSliderViewport((int)Math.Round(slider.Value));
         };
         AutomationProperties.SetName(slider, "Logical row position");
-        var panel = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,Auto,*,Auto,Auto"), Margin = new Thickness(0, 0, 0, 4) };
+        var panel = new Grid
+        {
+            ColumnDefinitions = new ColumnDefinitions("Auto,Auto,*,Auto,Auto"),
+            ColumnSpacing = ResourceNumber("DuiGridControlGap", 4) * scale,
+            Margin = ResourceThickness("DuiGridNavigationMargin", new Thickness(0, 0, 0, 4)),
+            MinWidth = ResourceNumber("DuiGridMinimumViewportWidth", 320) * scale,
+        };
         Grid.SetColumn(previous, 0); Grid.SetColumn(next, 1); Grid.SetColumn(slider, 2); Grid.SetColumn(status, 3); Grid.SetColumn(retry, 4);
         panel.Children.Add(previous); panel.Children.Add(next); panel.Children.Add(slider); panel.Children.Add(status); panel.Children.Add(retry);
         return panel;
     }
+
+    private static double ResourceNumber(string key, double fallback) =>
+        Application.Current?.TryFindResource(key, out var value) == true && value is double number ? number : fallback;
+
+    private static Thickness ResourceThickness(string key, Thickness fallback) =>
+        Application.Current?.TryFindResource(key, out var value) == true && value is Thickness thickness ? thickness : fallback;
+
+    private static double RoleNumber(string prefix, GridGeometryRole role, double fallback) =>
+        ResourceNumber(prefix + role, fallback);
+
+    private Thickness ResolveOuterInset(double scale)
+    {
+        var inset = runtime.Definition.Presentation.EffectiveOuterInset;
+        return new Thickness(
+            RoleNumber("DuiGridInset", inset.Left, 0) * scale,
+            RoleNumber("DuiGridInset", inset.Top, 0) * scale,
+            RoleNumber("DuiGridInset", inset.Right, 0) * scale,
+            RoleNumber("DuiGridInset", inset.Bottom, 0) * scale);
+    }
+
+    private double ResolveAvailableWorkspaceHeight(double measuredAvailable)
+    {
+        if (!double.IsInfinity(measuredAvailable) && !double.IsNaN(measuredAvailable) && measuredAvailable > 0)
+            return measuredAvailable;
+        var topLevel = TopLevel.GetTopLevel(this);
+        var origin = topLevel is null ? null : this.TranslatePoint(default, topLevel);
+        var remaining = topLevel is null ? ResourceNumber("DuiGridHeightStandard", 520) :
+            topLevel.Bounds.Height - Math.Max(0, origin?.Y ?? 0);
+        return Math.Max(ResourceNumber("DuiGridMinimumViewportHeight", 180), remaining);
+    }
+
+    private double ResolveConfiguredHeight(double availableHeight)
+    {
+        var presentation = runtime.Definition.Presentation;
+        var requested = presentation.HeightMode switch
+        {
+            GridHeightMode.FitWorkspace => availableHeight,
+            GridHeightMode.Compact => ResourceNumber("DuiGridHeightCompact", 360),
+            GridHeightMode.Standard => ResourceNumber("DuiGridHeightStandard", 520),
+            GridHeightMode.Expanded => ResourceNumber("DuiGridHeightExpanded", 720),
+            GridHeightMode.FixedSemanticHeight => RoleNumber("DuiGridHeight", presentation.FixedHeightRole, 520),
+            _ => throw new InvalidOperationException("Unknown Grid height mode."),
+        };
+        if (presentation.HeightMode == GridHeightMode.FixedSemanticHeight && presentation.AllowFixedHeightBeyondWorkspace)
+            return requested;
+        return Math.Min(availableHeight, requested);
+    }
+
+    private double EffectiveViewportHeight()
+    {
+        if (scroller.Bounds.Height > 0) return scroller.Bounds.Height;
+        if (Bounds.Height <= 0) return 0;
+        var chrome = ResourceNumber("DuiControlHeightCompact", 28) * 2 +
+            RoleNumber("DuiGridHeader", runtime.Definition.Presentation.HeaderHeight, 38);
+        return Math.Max(ResourceNumber("DuiGridMinimumViewportHeight", 180), Bounds.Height - chrome);
+    }
+
+    private int ViewportRowLimit()
+    {
+        var materializedLimit = runtime.ViewportOptions.MaximumMaterializedRows -
+            runtime.ViewportOptions.OverscanBefore - runtime.ViewportOptions.OverscanAfter;
+        var profileLimit = runtime.Definition.Presentation.ViewportProfile switch
+        {
+            GridViewportProfile.Compact => 32,
+            GridViewportProfile.Standard => 60,
+            GridViewportProfile.Large => 84,
+            GridViewportProfile.MaximumWorkspace => materializedLimit,
+            _ => throw new InvalidOperationException("Unknown Grid viewport profile."),
+        };
+        return Math.Max(1, Math.Min(materializedLimit, profileLimit));
+    }
+
+    private void ValidateThemeGeometry()
+    {
+        var presentation = runtime.Definition.Presentation;
+        var inset = presentation.EffectiveOuterInset;
+        foreach (var value in new[] { inset.Left, inset.Top, inset.Right, inset.Bottom })
+            if (RoleNumber("DuiGridInset", value, DefaultInset(value)) < 0)
+                throw new InvalidOperationException("Grid outer inset theme mappings must be non-negative.");
+        var rowHeader = ResolveRowHeaderWidth();
+        if (presentation.RowNumbersCanBeShown && rowHeader < 72)
+            throw new InvalidOperationException("Grid row-header width must preserve the readable minimum.");
+        var clearance = RoleNumber("DuiGridScrollbarClearance", presentation.ScrollbarClearance, 2);
+        var thickness = ResourceNumber(GridThemeResourceKeys.ScrollbarThickness, 10);
+        var thumbMinimum = ResourceNumber(GridThemeResourceKeys.ScrollbarThumbMinLength, 28);
+        var hitTarget = ResourceNumber(GridThemeResourceKeys.ScrollbarHitTarget, 14);
+        var viewportMinimum = ResourceNumber("DuiGridMinimumViewportWidth", 320);
+        var viewportHeightMinimum = ResourceNumber("DuiGridMinimumViewportHeight", 180);
+        if (clearance < 0 || thickness < 6 || hitTarget < thickness || thumbMinimum < thickness ||
+            viewportMinimum < 240 || viewportHeightMinimum < 160)
+            throw new InvalidOperationException("Grid scrollbar or viewport theme mappings are invalid.");
+    }
+
+    private static void ApplyScrollbarRecipe(Control control)
+    {
+        static object? Resource(string key) =>
+            Application.Current?.TryFindResource(key, out var value) == true ? value : null;
+        var track = Resource(GridThemeResourceKeys.ScrollbarTrack);
+        var thumb = Resource(GridThemeResourceKeys.ScrollbarThumb);
+        var hover = Resource(GridThemeResourceKeys.ScrollbarHover);
+        var pressed = Resource(GridThemeResourceKeys.ScrollbarPressed);
+        var disabled = Resource(GridThemeResourceKeys.ScrollbarDisabled);
+        foreach (var key in new[] { "ScrollBarBackgroundBrushHorizontal", "ScrollBarBackgroundBrushVertical" })
+            if (track is not null) control.Resources[key] = track;
+        foreach (var key in new[] { "ScrollBarThumbBackgroundBrushHorizontal", "ScrollBarThumbBackgroundBrushVertical" })
+            if (thumb is not null) control.Resources[key] = thumb;
+        foreach (var key in new[] { "ScrollBarThumbBackgroundBrushHorizontalPointerOver", "ScrollBarThumbBackgroundBrushVerticalPointerOver" })
+            if (hover is not null) control.Resources[key] = hover;
+        foreach (var key in new[] { "ScrollBarThumbBackgroundBrushHorizontalPressed", "ScrollBarThumbBackgroundBrushVerticalPressed" })
+            if (pressed is not null) control.Resources[key] = pressed;
+        foreach (var key in new[] { "ScrollBarBackgroundBrushHorizontalDisabled", "ScrollBarBackgroundBrushVerticalDisabled" })
+            if (disabled is not null) control.Resources[key] = disabled;
+        control.Resources["ScrollBarMinAscent"] = ResourceNumber(GridThemeResourceKeys.ScrollbarHitTarget, 14);
+        control.Resources["ScrollBarThumbMinAscent"] = ResourceNumber(GridThemeResourceKeys.ScrollbarThumbMinLength, 28);
+    }
+
+    private static double DefaultInset(GridGeometryRole role) => role switch
+    {
+        GridGeometryRole.None or GridGeometryRole.Minimal => 0,
+        GridGeometryRole.Compact => 4,
+        GridGeometryRole.Standard => 8,
+        GridGeometryRole.Comfortable => 12,
+        _ => -1,
+    };
+
+    private double ResolveRowHeaderWidth() => runtime.Definition.Presentation.RowHeaderWidthOverride ??
+        RoleNumber("DuiGridRowHeader", runtime.Definition.Presentation.RowHeaderWidth, 72);
 
     private void QueueSliderViewport(int startIndex)
     {
@@ -1037,31 +1371,72 @@ public sealed class DataEntryGridHost : UserControl
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
     }
 
+    private void NavigateLogicalPosition(int requestedPosition)
+    {
+        if (!runtime.IsVirtualized || runtime.Rows.Length == 0) return;
+        var position = Math.Clamp(requestedPosition, 0, Math.Max(0, runtime.TotalRows - 1));
+        updatingLogicalScrollbar = true;
+        logicalVerticalScrollbar.Value = Math.Min(logicalVerticalScrollbar.Maximum, position);
+        updatingLogicalScrollbar = false;
+        var visible = Math.Max(1, runtime.RequestedViewportRowCount);
+        var threshold = Math.Max(4, Math.Min(runtime.ViewportOptions.OverscanAfter, visible / 3));
+        var first = runtime.ViewportStartIndex;
+        var endExclusive = first + runtime.Rows.Length;
+        if (position >= first && position + visible <= endExclusive)
+        {
+            var scale = appearance?.Current.UiScale ?? 1d;
+            var offset = Math.Max(0, position - first) * DensityHeight(scale);
+            scroller.Offset = new Vector(scroller.Offset.X, offset);
+            rowHeaderScroller.Offset = new Vector(0, offset);
+            if (position + visible >= endExclusive - threshold && runtime.HasNextViewport)
+                QueueViewportPrefetch(Math.Min(Math.Max(0, runtime.TotalRows - 1),
+                    runtime.RequestedViewportStartIndex + visible));
+            else if (position <= first + threshold && runtime.HasPreviousViewport)
+                QueueViewportPrefetch(Math.Max(0, runtime.RequestedViewportStartIndex - visible));
+            return;
+        }
+        QueueViewportPrefetch(position);
+        QueueSliderViewport(position);
+    }
+
+    private void QueueViewportPrefetch(int startIndex)
+    {
+        viewportPrefetch?.Cancel(); viewportPrefetch?.Dispose();
+        viewportPrefetch = new CancellationTokenSource();
+        var token = viewportPrefetch.Token;
+        _ = PrefetchViewportAsync(startIndex, token);
+    }
+
+    private async Task PrefetchViewportAsync(int startIndex, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await runtime.PrefetchViewportAsync(startIndex,
+                runtime.RequestedViewportRowCount > 0 ? runtime.RequestedViewportRowCount : runtime.ViewportOptions.VisibleRowCount,
+                cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
+        catch { /* Prefetch is opportunistic; visible state and diagnostics remain unchanged. */ }
+    }
+
     private void QueueNextViewportFromScroll()
     {
-        if (!IsNearViewportEnd() || scrollRequestPending) return;
-        scrollRequestPending = true;
-        Dispatcher.UIThread.Post(async () =>
-        {
-            try
-            {
-                if (IsNearViewportEnd())
-                    await RequestViewportAsync(runtime.RequestedViewportStartIndex + runtime.RequestedViewportRowCount);
-            }
-            finally { scrollRequestPending = false; }
-        }, DispatcherPriority.Background);
+        if (!IsNearViewportEnd()) return;
+        QueueViewportPrefetch(Math.Min(Math.Max(0, runtime.TotalRows - 1),
+            runtime.RequestedViewportStartIndex + Math.Max(1, runtime.RequestedViewportRowCount)));
     }
 
     private bool IsNearViewportEnd() => DateTimeOffset.UtcNow >= scrollRequestsEnabledAt && runtime.IsVirtualized &&
         runtime.HasNextViewport && scroller.Viewport.Height > 0 &&
-        scroller.Offset.Y >= scroller.Extent.Height - scroller.Viewport.Height - DensityHeight(appearance?.Current.UiScale ?? 1d);
+        scroller.Offset.Y >= scroller.Extent.Height - scroller.Viewport.Height -
+            Math.Max(4, runtime.ViewportOptions.OverscanAfter / 2) * DensityHeight(appearance?.Current.UiScale ?? 1d);
 
     private Task ReevaluateViewportAsync(CancellationToken cancellationToken = default)
     {
         if (!runtime.IsVirtualized || context is null || Bounds.Height <= 0) return Task.CompletedTask;
         var scale = appearance?.Current.UiScale ?? 1d;
-        var count = Math.Clamp((int)Math.Ceiling(Bounds.Height / DensityHeight(scale)) + 4, 20,
-            runtime.ViewportOptions.MaximumMaterializedRows - runtime.ViewportOptions.OverscanBefore - runtime.ViewportOptions.OverscanAfter);
+        var count = Math.Clamp((int)Math.Ceiling(EffectiveViewportHeight() / DensityHeight(scale)) + 4,
+            Math.Min(20, ViewportRowLimit()), ViewportRowLimit());
         return count == runtime.RequestedViewportRowCount ? Task.CompletedTask : runtime.ResizeViewportAsync(count, cancellationToken);
     }
 
@@ -1087,12 +1462,14 @@ public sealed class DataEntryGridHost : UserControl
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
     }
 
-    private double DensityHeight(double scale) => (appearance?.Current.GridDensity ?? GridDensityPreference.Comfortable) switch
-    {
-        GridDensityPreference.Compact => 30 * scale,
-        GridDensityPreference.Large => 46 * scale,
-        _ => 38 * scale,
-    };
+    private double DensityHeight(double scale) => runtime.Definition.Presentation.Density == GridGeometryRole.Standard
+        ? (appearance?.Current.GridDensity ?? GridDensityPreference.Comfortable) switch
+        {
+            GridDensityPreference.Compact => RoleNumber("DuiGridDensity", GridGeometryRole.Compact, 32) * scale,
+            GridDensityPreference.Large => RoleNumber("DuiGridDensity", GridGeometryRole.Comfortable, 44) * scale,
+            _ => RoleNumber("DuiGridDensity", GridGeometryRole.Standard, 38) * scale,
+        }
+        : RoleNumber("DuiGridDensity", runtime.Definition.Presentation.Density, 38) * scale;
 
     private static string Format(object? value, GridMetadataColumn column) => value switch
     {

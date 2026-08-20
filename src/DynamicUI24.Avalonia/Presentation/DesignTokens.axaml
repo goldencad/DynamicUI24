@@ -24,6 +24,51 @@
   <x:Double x:Key="DuiControlHeightCompact">28</x:Double>
   <x:Double x:Key="DuiControlHeightStandard">34</x:Double>
   <x:Double x:Key="DuiControlHeightLarge">40</x:Double>
+  <!-- Data Grid workspace geometry. Keep the frame flush to its content boundary and
+       reserve spacing inside control rows rather than outside the viewport. -->
+  <x:Double x:Key="DuiGridControlGap">4</x:Double>
+  <x:Double x:Key="DuiGridRowHeaderWidth">72</x:Double>
+  <x:Double x:Key="DuiGridMinimumViewportWidth">320</x:Double>
+  <x:Double x:Key="DuiGridMinimumViewportHeight">180</x:Double>
+  <x:Double x:Key="DuiGridHeightNone">360</x:Double>
+  <x:Double x:Key="DuiGridHeightMinimal">360</x:Double>
+  <x:Double x:Key="DuiGridHeightCompact">360</x:Double>
+  <x:Double x:Key="DuiGridHeightStandard">520</x:Double>
+  <x:Double x:Key="DuiGridHeightExpanded">720</x:Double>
+  <x:Double x:Key="DuiGridHeightComfortable">720</x:Double>
+  <Thickness x:Key="DuiGridActionsMargin">0,0,0,2</Thickness>
+  <Thickness x:Key="DuiGridNavigationMargin">0,0,0,4</Thickness>
+  <!-- Semantic Grid role mappings. Application metadata selects a role; Theme owns these values. -->
+  <x:Double x:Key="DuiGridInsetNone">0</x:Double>
+  <x:Double x:Key="DuiGridInsetMinimal">0</x:Double>
+  <x:Double x:Key="DuiGridInsetCompact">4</x:Double>
+  <x:Double x:Key="DuiGridInsetStandard">8</x:Double>
+  <x:Double x:Key="DuiGridInsetComfortable">12</x:Double>
+  <x:Double x:Key="DuiGridRowHeaderNone">0</x:Double>
+  <x:Double x:Key="DuiGridRowHeaderMinimal">72</x:Double>
+  <x:Double x:Key="DuiGridRowHeaderCompact">72</x:Double>
+  <x:Double x:Key="DuiGridRowHeaderStandard">72</x:Double>
+  <x:Double x:Key="DuiGridRowHeaderComfortable">84</x:Double>
+  <x:Double x:Key="DuiGridHeaderNone">28</x:Double>
+  <x:Double x:Key="DuiGridHeaderMinimal">28</x:Double>
+  <x:Double x:Key="DuiGridHeaderCompact">32</x:Double>
+  <x:Double x:Key="DuiGridHeaderStandard">38</x:Double>
+  <x:Double x:Key="DuiGridHeaderComfortable">42</x:Double>
+  <x:Double x:Key="DuiGridDensityNone">30</x:Double>
+  <x:Double x:Key="DuiGridDensityMinimal">30</x:Double>
+  <x:Double x:Key="DuiGridDensityCompact">32</x:Double>
+  <x:Double x:Key="DuiGridDensityStandard">38</x:Double>
+  <x:Double x:Key="DuiGridDensityComfortable">44</x:Double>
+  <x:Double x:Key="DuiGridScrollbarClearanceNone">0</x:Double>
+  <x:Double x:Key="DuiGridScrollbarClearanceMinimal">2</x:Double>
+  <x:Double x:Key="DuiGridScrollbarClearanceCompact">4</x:Double>
+  <x:Double x:Key="DuiGridScrollbarClearanceStandard">8</x:Double>
+  <x:Double x:Key="DuiGridScrollbarClearanceComfortable">12</x:Double>
+  <!-- One orientation-neutral scrollbar recipe. -->
+  <x:Double x:Key="DuiGridScrollbarThickness">10</x:Double>
+  <x:Double x:Key="DuiGridScrollbarThumbMinLength">28</x:Double>
+  <x:Double x:Key="DuiGridScrollbarRadius">5</x:Double>
+  <x:Double x:Key="DuiGridScrollbarHitTarget">14</x:Double>
   <x:Double x:Key="DuiIconSizeSmall">12</x:Double>
   <x:Double x:Key="DuiIconSizeStandard">16</x:Double>
   <x:Double x:Key="DuiIconSizeLarge">20</x:Double>
@@ -151,6 +196,12 @@
     <ResourceDictionary x:Key="Light">
       <SolidColorBrush x:Key="DuiSurfaceBrush" Color="#FFFFFFFF" />
       <SolidColorBrush x:Key="DuiSurfaceRaisedBrush" Color="#FFFFFFFF" />
+      <SolidColorBrush x:Key="DuiGridRowHeaderBrush" Color="#FFF8FAFC" />
+      <SolidColorBrush x:Key="DuiGridScrollbarTrackBrush" Color="#00FFFFFF" />
+      <SolidColorBrush x:Key="DuiGridScrollbarThumbBrush" Color="#66798AA3" />
+      <SolidColorBrush x:Key="DuiGridScrollbarHoverBrush" Color="#99798AA3" />
+      <SolidColorBrush x:Key="DuiGridScrollbarPressedBrush" Color="#CC667085" />
+      <SolidColorBrush x:Key="DuiGridScrollbarDisabledBrush" Color="#33798AA3" />
       <SolidColorBrush x:Key="DuiTextBrush" Color="#FF111827" />
       <SolidColorBrush x:Key="DuiTextMutedBrush" Color="#FF6B7280" />
       <SolidColorBrush x:Key="DuiBorderBrush" Color="#FFE5E7EB" />
@@ -201,6 +252,12 @@
     <ResourceDictionary x:Key="Dark">
       <SolidColorBrush x:Key="DuiSurfaceBrush" Color="#FF101828" />
       <SolidColorBrush x:Key="DuiSurfaceRaisedBrush" Color="#FF1D2939" />
+      <SolidColorBrush x:Key="DuiGridRowHeaderBrush" Color="#FF182230" />
+      <SolidColorBrush x:Key="DuiGridScrollbarTrackBrush" Color="#00000000" />
+      <SolidColorBrush x:Key="DuiGridScrollbarThumbBrush" Color="#667EA0C4" />
+      <SolidColorBrush x:Key="DuiGridScrollbarHoverBrush" Color="#998EACCC" />
+      <SolidColorBrush x:Key="DuiGridScrollbarPressedBrush" Color="#CCB2C7DF" />
+      <SolidColorBrush x:Key="DuiGridScrollbarDisabledBrush" Color="#337EA0C4" />
       <SolidColorBrush x:Key="DuiTextBrush" Color="#FFF2F4F7" />
       <SolidColorBrush x:Key="DuiTextMutedBrush" Color="#FF98A2B3" />
       <SolidColorBrush x:Key="DuiBorderBrush" Color="#FF475467" />

@@ -284,8 +284,35 @@ public sealed class DataEntryGridArchitectureTests
         Assert.Contains("Find in Row…", host, StringComparison.Ordinal);
         Assert.DoesNotContain("Text = \"№\"", host, StringComparison.Ordinal);
         Assert.Contains("Grid corner header", host, StringComparison.Ordinal);
-        Assert.DoesNotContain("if (runtime.Definition.ShowRowNumbers)", host, StringComparison.Ordinal);
+        Assert.Contains("runtime.ShowRowNumbers", host, StringComparison.Ordinal);
+        Assert.Contains("Definition.ShowRowNumbers && CurrentViewPreference.ShowRowNumbers", ReadDirectory("src/DynamicUI24.Core/DataEntry"), StringComparison.Ordinal);
         Assert.DoesNotContain("new VariableCode(\"ROW", host, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void GridGeometryAndScrollOwnershipRemainSemanticAndBounded()
+    {
+        var core = File.ReadAllText(Path("src/DynamicUI24.Core/DataEntry/GridPresentationConfiguration.cs"));
+        var host = File.ReadAllText(Path("src/DynamicUI24.Avalonia/Presentation/DataEntryGridHost.cs"));
+        var theme = File.ReadAllText(Path("src/DynamicUI24.Avalonia/Presentation/DesignTokens.axaml"));
+        Assert.Contains("GridGeometryRole { None, Minimal, Compact, Standard, Comfortable }", core, StringComparison.Ordinal);
+        Assert.Contains("GridOuterInset", core, StringComparison.Ordinal);
+        Assert.Contains("RowNumbersCanBeShown", core, StringComparison.Ordinal);
+        Assert.DoesNotContain("Color", core, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("columnHeaderScroller.Offset = new Vector(scroller.Offset.X, 0)", host, StringComparison.Ordinal);
+        Assert.Contains("rowHeaderScroller.Offset = new Vector(0, scroller.Offset.Y)", host, StringComparison.Ordinal);
+        Assert.Contains("logicalVerticalScrollbar.Maximum", host, StringComparison.Ordinal);
+        Assert.Contains("QueueSliderViewport", host, StringComparison.Ordinal);
+        Assert.Contains("DuiGridScrollbarThickness", theme, StringComparison.Ordinal);
+        Assert.Contains("DuiGridScrollbarThumbMinLength", theme, StringComparison.Ordinal);
+        Assert.Contains("DuiGridScrollbarHoverBrush", theme, StringComparison.Ordinal);
+        Assert.Contains("DuiGridScrollbarPressedBrush", theme, StringComparison.Ordinal);
+        Assert.Contains("GridHeightMode { FitWorkspace, Compact, Standard, Expanded, FixedSemanticHeight }", core, StringComparison.Ordinal);
+        Assert.Contains("GridViewportProfile { Compact, Standard, Large, MaximumWorkspace }", core, StringComparison.Ordinal);
+        Assert.Contains("PresentationConfigurationRequirement", ReadDirectory("src/DynamicUI24.Core/DataEntry"), StringComparison.Ordinal);
+        Assert.DoesNotContain("Admin", core, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("RowDefinitions(\"Auto,*,Auto\")", host, StringComparison.Ordinal);
+        Assert.Contains("EffectiveViewportHeight()", host, StringComparison.Ordinal);
     }
 
     private static string ReadDirectory(string relative) => string.Join('\n',

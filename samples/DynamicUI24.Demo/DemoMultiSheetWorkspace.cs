@@ -72,6 +72,7 @@ internal sealed class DemoMultiSheetWorkspace
     public bool Activate(SheetCode code)
     {
         var activated = Host.TryActivate(code);
+        if (activated && content.TryGetValue(code, out var item)) _ = item.LoadAsync(company, authorization);
         RefreshStatus(activated ? "S1_ACTIVATED" : "S1_ACTIVATION_REJECTED");
         return activated;
     }
@@ -95,7 +96,7 @@ internal sealed class DemoMultiSheetWorkspace
     private Control Content(SheetDefinition sheet, object value)
     {
         var item = (DemoSheetContent)value; content[sheet.SheetCode] = item;
-        _ = item.LoadAsync(company, authorization); return item.Host;
+        return item.Host;
     }
 
     private Control Build()
@@ -115,8 +116,10 @@ internal sealed class DemoMultiSheetWorkspace
         Add(actions, "Delete", async () => { if (Host.ActiveSheetCode is { } code) Show(await Host.DeleteAsync(code)); });
         Add(actions, "Cycle diagnostic", async () => Show(await Host.RequestRecalculationAsync(
             Host.ActiveSheetCode is { } code ? [code] : [])));
-        var panel = new DockPanel(); DockPanel.SetDock(actions, Dock.Top); DockPanel.SetDock(status, Dock.Bottom);
-        actions.Margin = new(8); status.Margin = new(8); panel.Children.Add(actions); panel.Children.Add(status); panel.Children.Add(hostView);
+        var panel = new Grid { RowDefinitions = new RowDefinitions("Auto,*,Auto") };
+        actions.Margin = new(8); status.Margin = new(8);
+        Grid.SetRow(actions, 0); Grid.SetRow(hostView, 1); Grid.SetRow(status, 2);
+        panel.Children.Add(actions); panel.Children.Add(hostView); panel.Children.Add(status);
         return panel;
     }
 

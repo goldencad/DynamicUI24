@@ -23,7 +23,8 @@ public sealed record GridColumnPreference(VariableCode VariableCode, int Order, 
 public sealed record GridViewPreference(string GridCode, int SchemaVersion,
     ImmutableArray<GridColumnPreference> Columns, ImmutableArray<GridSortDefinition> Sorts,
     ImmutableArray<GridFilterDescriptor> Filters, GridDensity Density = GridDensity.Comfortable,
-    string? ViewName = null, decimal RowHeightScalePercent = 100m, GridFindScope? FindScope = null)
+    string? ViewName = null, decimal RowHeightScalePercent = 100m, GridFindScope? FindScope = null,
+    bool ShowRowNumbers = true)
 {
     public const int CurrentSchemaVersion = 1;
     public static GridViewPreference Empty(string gridCode) =>
@@ -122,7 +123,8 @@ public static class GridViewPreferenceResolver
             repairedColumns, usable ? preference!.Sorts : [], usable ? preference!.Filters : [],
             usable ? preference!.Density : GridDensity.Comfortable, usable ? preference!.ViewName : null,
             Math.Clamp(usable ? preference!.RowHeightScalePercent : 100m, 75m, 300m),
-            usable ? preference!.FindScope : null);
+            usable ? preference!.FindScope : null,
+            usable ? preference!.ShowRowNumbers : metadata.Definition.Presentation.RowNumbersShownByDefault);
         return new(ordered.Select((x, index) => x with { Order = index }).ToImmutableArray(), repaired, diagnostics.ToImmutable());
     }
 }

@@ -42,7 +42,8 @@
         <GridSplitter Grid.Column="1" ResizeDirection="Columns" Background="{DynamicResource DuiBorderSubtleBrush}" />
         <Grid Grid.Column="2" RowDefinitions="Auto,*" MinWidth="420">
           <ContentControl x:Name="BreadcrumbPresenter" Margin="16,8,16,0" />
-          <ContentControl Grid.Row="1" x:Name="WorkspacePresenter" Margin="{DynamicResource DuiShellRegionPaddingThickness}" />
+          <ContentControl Grid.Row="1" x:Name="WorkspacePresenter" Margin="{DynamicResource DuiShellRegionPaddingThickness}"
+                          HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
         </Grid>
         <GridSplitter Grid.Column="3" x:Name="ContextSplitter" ResizeDirection="Columns"
                       ResizeBehavior="PreviousAndNext" Background="{DynamicResource DuiBorderSubtleBrush}"
