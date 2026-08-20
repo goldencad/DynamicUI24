@@ -16,7 +16,7 @@ namespace DynamicUI24.Demo;
 public sealed class DemoEditorWorkspace : ScrollViewer, IRuntimeLocalizationAware, IRuntimeWorkspaceActivationAware
 {
     private readonly EditorResolver resolver = new();
-    private readonly StackPanel content = new() { Margin = new(18), Spacing = 16 };
+    private readonly UniversalFormPanel content = new() { Margin = new(24) };
     private readonly ILocalizationService localization;
     private readonly List<AvaloniaEditorPresenter> presenters = [];
     private readonly List<LargeDemoLookupProvider> lookupProviders = [];
@@ -105,8 +105,7 @@ public sealed class DemoEditorWorkspace : ScrollViewer, IRuntimeLocalizationAwar
 
     private void AddSection(string title, params EditorDefinition[] definitions)
     {
-        var panel = new StackPanel { Spacing = 10 };
-        panel.Children.Add(new TextBlock { Text = title, FontSize = 18 });
+        var panel = new UniversalFormSection(title);
         foreach (var definition in definitions)
         {
             object? value = definition.ValueType switch
@@ -126,7 +125,7 @@ public sealed class DemoEditorWorkspace : ScrollViewer, IRuntimeLocalizationAwar
             var presenter = new AvaloniaEditorPresenter(definition, new(definition, value), resolution, culture,
                 lookupProvider: lookupProvider);
             presenter.ActionInvoked += DispatchEmbeddedAction;
-            presenters.Add(presenter); panel.Children.Add(presenter);
+            presenters.Add(presenter); panel.AddField(presenter);
         }
         content.Children.Add(panel);
     }

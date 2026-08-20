@@ -17,6 +17,14 @@ public readonly record struct IconKey
 public static class StandardIconKeys
 {
     public static IconKey Search { get; } = new("SEARCH");
+    public static IconKey Calendar { get; } = new("CALENDAR");
+    public static IconKey Clock { get; } = new("CLOCK");
+    public static IconKey ChevronDown { get; } = new("CHEVRON_DOWN");
+    public static IconKey Clear { get; } = new("CLEAR");
+    public static IconKey OpenBrowse { get; } = new("OPEN_BROWSE");
+    public static IconKey Check { get; } = new("CHECK");
+    public static IconKey Help { get; } = new("HELP");
+    public static IconKey Indeterminate { get; } = new("INDETERMINATE");
     public static IconKey Filter { get; } = new("FILTER");
     public static IconKey Refresh { get; } = new("REFRESH");
     public static IconKey Add { get; } = new("ADD");
@@ -69,18 +77,34 @@ public static class StandardIconKeys
 /// <summary>Registry-owned source. Reusable metadata continues to expose only <see cref="IconKey"/>.</summary>
 public abstract record IconSource;
 
+public enum SvgPaintMode
+{
+    Fill,
+    Stroke,
+}
+
 /// <summary>Portable SVG geometry, optionally identified by a logical application resource name.</summary>
 public sealed record SvgIconSource : IconSource
 {
-    public SvgIconSource(string pathData, string? resourceName = null)
+    public SvgIconSource(string pathData, string? resourceName = null,
+        SvgPaintMode paintMode = SvgPaintMode.Fill, double strokeWidth = 0,
+        bool roundLineCap = false, bool roundLineJoin = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(pathData);
         PathData = pathData;
         ResourceName = string.IsNullOrWhiteSpace(resourceName) ? null : resourceName.Trim();
+        PaintMode = paintMode;
+        StrokeWidth = strokeWidth;
+        RoundLineCap = roundLineCap;
+        RoundLineJoin = roundLineJoin;
     }
 
     public string PathData { get; }
     public string? ResourceName { get; }
+    public SvgPaintMode PaintMode { get; }
+    public double StrokeWidth { get; }
+    public bool RoundLineCap { get; }
+    public bool RoundLineJoin { get; }
 }
 
 /// <summary>A glyph and installed/logical family name; never a raw font-file payload.</summary>

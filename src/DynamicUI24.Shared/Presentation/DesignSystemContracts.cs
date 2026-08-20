@@ -149,6 +149,14 @@ public static class DesignTokens
         public static readonly DesignTokenKey IconLarge = new("Icon.Size.Large");
         public static readonly DesignTokenKey HitTargetMinimum = new("HitTarget.Minimum");
         public static readonly DesignTokenKey FormReadableWidth = new("Form.ReadableWidth");
+        public static readonly DesignTokenKey EditorControlHeight = new("Editor.ControlHeight.Standard");
+        public static readonly DesignTokenKey EditorLeadingSlotWidth = new("Editor.LeadingSlot.Width");
+        public static readonly DesignTokenKey EditorTrailingSlotWidth = new("Editor.TrailingSlot.Width");
+        public static readonly DesignTokenKey EditorIconSize = new("Editor.Icon.Size");
+        public static readonly DesignTokenKey EditorHelpIconSize = new("Editor.Help.IconSize");
+        public static readonly DesignTokenKey PopupMaxHeight = new("Popup.MaxHeight");
+        public static readonly DesignTokenKey PopupOptionHeight = new("Popup.OptionHeight");
+        public static readonly DesignTokenKey MultiChoiceCheckSize = new("MultiChoice.Check.Size");
     }
 
     public static class Color
@@ -180,6 +188,20 @@ public static class DesignTokens
         public static readonly DesignTokenKey Fast = new("Motion.Fast");
         public static readonly DesignTokenKey Standard = new("Motion.Standard");
         public static readonly DesignTokenKey Emphasized = new("Motion.Emphasized");
+    }
+
+    public static class Editor
+    {
+        public static readonly DesignTokenKey ContentPadding = new("Editor.ContentPadding");
+        public static readonly DesignTokenKey InlineGap = new("Editor.InlineGap");
+        public static readonly DesignTokenKey HelpGap = new("Editor.Help.Gap");
+        public static readonly DesignTokenKey Radius = new("Editor.Radius");
+        public static readonly DesignTokenKey BorderThickness = new("Editor.Border.Thickness");
+        public static readonly DesignTokenKey PopupPadding = new("Popup.Padding");
+        public static readonly DesignTokenKey PopupRadius = new("Popup.Radius");
+        public static readonly DesignTokenKey PopupBorderThickness = new("Popup.Border.Thickness");
+        public static readonly DesignTokenKey PopupElevation = new("Popup.Elevation");
+        public static readonly DesignTokenKey MultiChoiceOptionGap = new("MultiChoice.OptionGap");
     }
 }
 

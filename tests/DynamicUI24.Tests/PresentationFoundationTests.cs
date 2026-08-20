@@ -1,3 +1,4 @@
+using Avalonia.Controls;
 using DynamicUI24.Avalonia.Presentation;
 using DynamicUI24.Shared.Presentation;
 using Xunit;
@@ -156,6 +157,56 @@ public sealed class IconRegistryTests
         Assert.Equal("icons/sample.svg", Assert.IsType<SvgIconSource>(registry.Resolve(new("SVG_RESOURCE")).Source).ResourceName);
         Assert.Equal("★", Assert.IsType<FontGlyphIconSource>(registry.Resolve(new("FONT_GLYPH")).Source).Glyph);
         Assert.Empty(registry.Resolve(new("FONT_GLYPH")).SvgPathData);
+    }
+
+    [Fact]
+    public void CanonicalCatalogMapsRequiredSemanticKeysToSvgAssets()
+    {
+        var registry = new SemanticIconRegistry();
+        var required = new[] { StandardIconKeys.Clock, StandardIconKeys.Calendar, StandardIconKeys.ChevronDown,
+            StandardIconKeys.Search, StandardIconKeys.Help, StandardIconKeys.Clear, StandardIconKeys.Reveal,
+            StandardIconKeys.OpenBrowse, StandardIconKeys.More, StandardIconKeys.Check };
+
+        Assert.All(required, key =>
+        {
+            var source = Assert.IsType<SvgIconSource>(registry.Resolve(key).Source);
+            Assert.StartsWith("Assets/Icons/", source.ResourceName, StringComparison.Ordinal);
+            Assert.NotEmpty(source.PathData);
+        });
+
+        var check = Assert.IsType<SvgIconSource>(registry.Resolve(StandardIconKeys.Check).Source);
+        Assert.Equal(SvgPaintMode.Stroke, check.PaintMode);
+        Assert.Equal(1.75, check.StrokeWidth);
+        Assert.True(check.RoundLineCap);
+        Assert.True(check.RoundLineJoin);
+        Assert.Equal(SvgPaintMode.Fill,
+            Assert.IsType<SvgIconSource>(registry.Resolve(StandardIconKeys.More).Source).PaintMode);
+    }
+
+    [Fact]
+    public void ReplacingCatalogClockAssetChangesEverySemanticConsumerWithoutPresenterChanges()
+    {
+        static Stream Assets(string clockPath) => new MemoryStream(System.Text.Encoding.UTF8.GetBytes(
+            $"<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor'><path d='{clockPath}'/></svg>"));
+        var first = new SemanticIconRegistry(new DynamicUI24IconCatalog(_ => Assets("M2 2 L22 22")));
+        var replacement = new SemanticIconRegistry(new DynamicUI24IconCatalog(_ => Assets("M2 22 L22 2")));
+        var firstConsumer = new SemanticIcon();
+        var secondConsumer = new SemanticIcon();
+
+        firstConsumer.SetIcon(first, StandardIconKeys.Clock);
+        secondConsumer.SetIcon(replacement, StandardIconKeys.Clock);
+
+        Assert.IsType<Viewbox>(firstConsumer.Content);
+        Assert.Equal(SvgPaintMode.Stroke, Assert.IsType<SvgIconSource>(firstConsumer.ResolvedSource).PaintMode);
+        Assert.NotEqual(Assert.IsType<SvgIconSource>(firstConsumer.ResolvedSource).PathData,
+            Assert.IsType<SvgIconSource>(secondConsumer.ResolvedSource).PathData);
+    }
+
+    [Fact]
+    public void MissingRequiredCatalogAssetFailsInsteadOfFallingBackToFontGlyph()
+    {
+        var catalog = new DynamicUI24IconCatalog(file => throw new FileNotFoundException(file));
+        Assert.Throws<FileNotFoundException>(() => new SemanticIconRegistry(catalog));
     }
 }
 

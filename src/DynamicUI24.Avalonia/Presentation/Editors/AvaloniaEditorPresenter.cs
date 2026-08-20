@@ -2,9 +2,12 @@ using System.Globalization;
 using Avalonia;
 using Avalonia.Automation;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Threading;
+using Avalonia.VisualTree;
 using DynamicUI24.Core.Editors;
 using DynamicUI24.Core.Authorization;
 using DynamicUI24.Shared.Presentation;
@@ -17,6 +20,7 @@ namespace DynamicUI24.Avalonia.Presentation.Editors;
 /// </summary>
 public sealed class AvaloniaEditorPresenter : UserControl
 {
+    private static readonly SemanticIconRegistry EditorIcons = new();
     private readonly StackPanel root = new() { Spacing = EditorPresentationTokens.FieldGap,
         MaxWidth = EditorPresentationTokens.FormMaxReadableWidth };
     private readonly TextBlock label = new();
@@ -30,7 +34,10 @@ public sealed class AvaloniaEditorPresenter : UserControl
     private Action? captureCompositeCandidate;
     private TextBlock? rangeStartLabel;
     private TextBlock? rangeEndLabel;
+    private Button? helpButton;
     private CancellationTokenSource? lookupCancellation;
+    private Border? lookupDropDown;
+    private Border? multiChoiceDropDown;
     private readonly EffectiveAuthorizationContext? authorization;
 
     public AvaloniaEditorPresenter(EditorDefinition definition, EditorRuntimeState state,
@@ -46,6 +53,7 @@ public sealed class AvaloniaEditorPresenter : UserControl
         if (resolution.InteractionState == EditorInteractionState.Hidden) { IsVisible = false; Content = root; return; }
         BuildStableVisualTree(lookupProvider);
         Content = root;
+        DetachedFromVisualTree += (_, _) => CloseTransientSurfaces();
     }
 
     public EditorDefinition Definition { get; }
@@ -58,6 +66,14 @@ public sealed class AvaloniaEditorPresenter : UserControl
     public event EventHandler? CandidateChanged;
     public event EventHandler? Committed;
     public event EventHandler<EditorActionInvokedEventArgs>? ActionInvoked;
+    public bool IsMultiChoiceOpen => multiChoiceDropDown?.IsVisible == true;
+
+    public void CloseTransientSurfaces()
+    {
+        if (lookupDropDown is not null) lookupDropDown.IsVisible = false;
+        if (multiChoiceDropDown is not null) multiChoiceDropDown.IsVisible = false;
+        lookupCancellation?.Cancel();
+    }
 
     /// <summary>Shows a safe result supplied by the semantic action owner beside the invoking editor.</summary>
     public void ShowActionFeedback(string safeMessage)
@@ -99,7 +115,13 @@ public sealed class AvaloniaEditorPresenter : UserControl
         AutomationProperties.SetName(this, label.Text);
         if (editor is not null) AutomationProperties.SetName(editor, label.Text);
         if (editor is TextBox text) text.Watermark = Definition.Chrome.PlaceholderKey is { } placeholder ? localize(placeholder) : null;
-        foreach (var (action, button) in actionButtons) button.Content = localize(action.LabelKey);
+        foreach (var (action, button) in actionButtons)
+        {
+            var actionName = localize(action.LabelKey);
+            AutomationProperties.SetName(button, actionName);
+            ToolTip.SetTip(button, actionName);
+        }
+        if (helpButton is not null) AutomationProperties.SetName(helpButton, localize(new("Editor.Help")));
         if (rangeStartLabel is not null) rangeStartLabel.Text = localize(new("Editor.DateRange.Start"));
         if (rangeEndLabel is not null) rangeEndLabel.Text = localize(new("Editor.DateRange.End"));
         UpdateMessage(localize);
@@ -110,7 +132,7 @@ public sealed class AvaloniaEditorPresenter : UserControl
         label.Text = Definition.Chrome.LabelKey?.Value ?? Definition.EditorCode.Value;
         if (Definition.Chrome.ShowRequiredIndicator && Definition.Validation.IsRequired) label.Text += " *";
         AutomationProperties.SetName(this, label.Text);
-        root.Children.Add(label);
+        root.Children.Add(BuildLabelAnatomy());
         editor = CreateNativeEditor(lookupProvider);
         ApplyPreferredGeometry(editor);
         editor.IsEnabled = Resolution.InteractionState != EditorInteractionState.Disabled;
@@ -123,36 +145,64 @@ public sealed class AvaloniaEditorPresenter : UserControl
         root.Children.Add(actionFeedback);
     }
 
+    private Control BuildLabelAnatomy()
+    {
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = EditorPresentationTokens.FieldGap };
+        EditorThemeResources.Bind(row, StackPanel.SpacingProperty, EditorThemeResources.HelpGap);
+        label.VerticalAlignment = VerticalAlignment.Center;
+        row.Children.Add(label);
+        if (Definition.HelpContextCode is not { } helpCode) return row;
+        var help = helpButton = new Button
+        {
+            Content = new EditorAffordanceSlot(EditorAffordanceKind.Help, "Help"), Tag = "HELP",
+            Width = EditorPresentationTokens.MinimumHitTarget, Height = EditorPresentationTokens.MinimumHitTarget,
+            Padding = new Thickness(0),
+            Background = Brushes.Transparent, BorderThickness = new Thickness(0),
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        EditorThemeResources.Bind(help, Button.WidthProperty, EditorThemeResources.TrailingSlotWidth);
+        EditorThemeResources.Bind(help, Button.HeightProperty, EditorThemeResources.ControlHeight);
+        AutomationProperties.SetName(help, "Help");
+        AutomationProperties.SetHelpText(help, helpCode.Value);
+        ToolTip.SetTip(help, helpCode.Value);
+        help.Click += (_, _) => ActionInvoked?.Invoke(this, new(new("HELP", EditorActionKind.Help,
+            new("Editor.Help"))));
+        row.Children.Add(help);
+        return row;
+    }
+
     private Control BuildEditorWithActions(Control native)
     {
         var embeddedActions = Resolution.Kind == EditorKind.Hyperlink
             ? Definition.Actions.Where(x => x.Kind != EditorActionKind.Open).ToArray()
             : Definition.Actions.ToArray();
-        if (embeddedActions.Length == 0 && Definition.HelpContextCode is null) return native;
+        if (embeddedActions.Length == 0) return native;
         var panel = new Grid { ColumnDefinitions = new("*,Auto") };
         panel.Children.Add(native);
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
         Grid.SetColumn(actions, 1);
         foreach (var action in embeddedActions)
         {
-            var button = new Button { Content = action.LabelKey.Value, Tag = action.ActionCode,
-                IsEnabled = CanExecuteAction(action) };
+            var button = new Button { Content = new EditorAffordanceSlot(ActionAffordance(action), action.LabelKey.Value), Tag = action.ActionCode,
+                Width = EditorPresentationTokens.TrailingActionSize, Height = EditorPresentationTokens.TrailingActionSize,
+                Padding = new Thickness(4), IsEnabled = CanExecuteAction(action) };
+            AutomationProperties.SetName(button, action.LabelKey.Value);
+            ToolTip.SetTip(button, action.LabelKey.Value);
             button.Click += (_, _) => ActionInvoked?.Invoke(this, new(action));
             actions.Children.Add(button);
             actionButtons.Add(action, button);
         }
-        if (Definition.HelpContextCode is not null)
-        {
-            var help = new Button { Content = "?", Width = 28, Height = EditorPresentationTokens.ControlHeight,
-                Padding = new Thickness(4), Tag = "HELP" };
-            AutomationProperties.SetName(help, "Help");
-            ToolTip.SetTip(help, Definition.HelpContextCode.Value);
-            help.Click += (_, _) => ActionInvoked?.Invoke(this, new(new("HELP", EditorActionKind.Help,
-                new("Editor.Help"))));
-            actions.Children.Add(help);
-        }
         panel.Children.Add(actions); return panel;
     }
+
+    private static EditorAffordanceKind ActionAffordance(EditorActionDefinition action) => action.Kind switch
+    {
+        EditorActionKind.Clear => EditorAffordanceKind.Clear,
+        EditorActionKind.Reveal => EditorAffordanceKind.Reveal,
+        EditorActionKind.Help => EditorAffordanceKind.Help,
+        EditorActionKind.Open or EditorActionKind.Browse => EditorAffordanceKind.OpenBrowse,
+        _ => EditorAffordanceKind.Dropdown,
+    };
 
     private Control CreateNativeEditor(IEditorLookupProvider? lookupProvider) => Resolution.Kind switch
     {
@@ -217,7 +267,10 @@ public sealed class AvaloniaEditorPresenter : UserControl
     private CheckBox CreateBoolean()
     {
         var check = new CheckBox { IsChecked = State.CandidateValue as bool?,
-            IsThreeState = Definition.AllowsNull, IsEnabled = Resolution.InteractionState == EditorInteractionState.Editable };
+            IsThreeState = Definition.AllowsNull, IsEnabled = Resolution.InteractionState == EditorInteractionState.Editable,
+            Padding = new Thickness(0), HorizontalContentAlignment = HorizontalAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center };
+        DynamicCheckBoxPresentation.Apply(check);
         check.IsCheckedChanged += (_, _) => { State.SetCandidate(check.IsChecked); CandidateChanged?.Invoke(this, EventArgs.Empty); };
         return check;
     }
@@ -230,11 +283,12 @@ public sealed class AvaloniaEditorPresenter : UserControl
         return date;
     }
 
-    private TextBox CreateTime()
+    private Control CreateTime()
     {
-        var time = CompactTimeText(State.CandidateValue is TimeOnly t ? t : State.CandidateValue is TimeSpan span ? TimeOnly.FromTimeSpan(span) : null);
-        captureCompositeCandidate = () => CaptureTime(time, value => State.SetCandidate(value));
-        return time;
+        var (surface, input) = CompactTimeEditor(State.CandidateValue is TimeOnly t ? t :
+            State.CandidateValue is TimeSpan span ? TimeOnly.FromTimeSpan(span) : null);
+        captureCompositeCandidate = () => CaptureTime(input, value => State.SetCandidate(value));
+        return surface;
     }
 
     private Control CreateDateTime()
@@ -242,11 +296,12 @@ public sealed class AvaloniaEditorPresenter : UserControl
         var value = State.CandidateValue as DateTime?;
         var panel = new Grid { ColumnDefinitions = new("Auto,Auto"), ColumnSpacing = EditorPresentationTokens.InlineGap };
         var date = CompactDatePicker(value);
-        var time = CompactTimeText(value is { } current ? TimeOnly.FromDateTime(current) : null); Grid.SetColumn(time, 1);
-        void Changed() { if (date.SelectedDate is { } d && TryParseTime(time.Text, out var t)) State.SetCandidate(d.Date + t.ToTimeSpan()); CandidateChanged?.Invoke(this, EventArgs.Empty); }
+        var (timeSurface, timeInput) = CompactTimeEditor(value is { } current ? TimeOnly.FromDateTime(current) : null);
+        Grid.SetColumn(timeSurface, 1);
+        void Changed() { if (date.SelectedDate is { } d && TryParseTime(timeInput.Text, out var t)) State.SetCandidate(d.Date + t.ToTimeSpan()); CandidateChanged?.Invoke(this, EventArgs.Empty); }
         date.SelectedDateChanged += (_, _) => Changed();
         captureCompositeCandidate = Changed;
-        panel.Children.Add(date); panel.Children.Add(time); return panel;
+        panel.Children.Add(date); panel.Children.Add(timeSurface); return panel;
     }
 
     private Control CreateDateRange()
@@ -271,7 +326,14 @@ public sealed class AvaloniaEditorPresenter : UserControl
     private ComboBox CreateChoice()
     {
         var combo = new ComboBox { ItemsSource = Definition.Choices, SelectedItem = Definition.Choices.FirstOrDefault(x => x.SemanticOptionId == State.CandidateValue?.ToString()),
-            IsEnabled = Resolution.InteractionState == EditorInteractionState.Editable };
+            IsEnabled = Resolution.InteractionState == EditorInteractionState.Editable,
+            MaxDropDownHeight = EditorPresentationTokens.PopupMaxHeight,
+            Height = EditorPresentationTokens.ControlHeight,
+            Padding = new Thickness(EditorPresentationTokens.ContentPadding, 0),
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            VerticalContentAlignment = VerticalAlignment.Center };
+        combo.Classes.Add("dui-choice");
+        EditorThemeResources.Bind(combo, ComboBox.HeightProperty, EditorThemeResources.ControlHeight);
         combo.SelectionChanged += (_, _) => { State.SetCandidate((combo.SelectedItem as EditorChoiceOption)?.SemanticOptionId); CandidateChanged?.Invoke(this, EventArgs.Empty); };
         return combo;
     }
@@ -279,21 +341,30 @@ public sealed class AvaloniaEditorPresenter : UserControl
     private Control CreateLookup(IEditorLookupProvider? provider)
     {
         if (provider is null) return CreateDeferred("Lookup provider is not registered.");
-        var panel = new StackPanel { Spacing = 2 };
-        var query = new TextBox { Watermark = Definition.Chrome.PlaceholderKey?.Value ?? "Search" };
+        var panel = new Grid { RowDefinitions = new("Auto,Auto") };
+        var selectedText = new TextBlock { Text = State.CandidateValue is EditorLookupSelection initial ? initial.SafeDisplayText : "Select…",
+            VerticalAlignment = VerticalAlignment.Center };
+        var trigger = new Button { Height = EditorPresentationTokens.ControlHeight, Padding = new Thickness(0),
+            Background = Brushes.Transparent, BorderThickness = new Thickness(0),
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Content = EditorSurfaceGeometry.WithTrailingAffordance(selectedText, EditorAffordanceKind.Search, "Search") };
+        EditorThemeResources.Bind(trigger, Button.HeightProperty, EditorThemeResources.ControlHeight);
+        var popupContent = new Grid { RowDefinitions = new("Auto,*"), RowSpacing = EditorPresentationTokens.FieldGap,
+            Width = EditorPresentationTokens.LongControlWidth };
+        var query = new TextBox { Watermark = Definition.Chrome.PlaceholderKey?.Value ?? "Search", Height = EditorPresentationTokens.ControlHeight };
         NativeEditorInputOwnership.Enable(query);
         nativeTextInputs.Add(query);
-        var selectedDisplay = new TextBlock { Text = State.CandidateValue is EditorLookupSelection selected
-            ? selected.SafeDisplayText : "No selection" };
-        var results = new ListBox { MaxHeight = 180, IsVisible = false };
+        var results = new ListBox { MaxHeight = EditorPresentationTokens.PopupMaxHeight - EditorPresentationTokens.ControlHeight - EditorPresentationTokens.FieldGap };
+        Grid.SetRow(results, 1);
         var coordinator = new EditorLookupCoordinator();
         var selection = new EditorLookupSelectionState();
         void CommitSelection()
         {
             if (selection.CommitActive() is not { } committed) return;
             State.SetCandidate(committed);
-            selectedDisplay.Text = committed.SafeDisplayText;
-            results.IsVisible = false;
+            selectedText.Text = committed.SafeDisplayText;
+            if (lookupDropDown is not null) lookupDropDown.IsVisible = false;
             CandidateChanged?.Invoke(this, EventArgs.Empty);
         }
         query.TextChanged += async (_, _) =>
@@ -310,39 +381,109 @@ public sealed class AvaloniaEditorPresenter : UserControl
                         selection.RestoreSemanticSelection(current.SemanticOptionId);
                     results.ItemsSource = selection.Items;
                     results.SelectedIndex = selection.ActiveIndex;
-                    results.IsVisible = selection.Items.Count > 0;
                 }
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         };
-        query.GotFocus += (_, _) => results.IsVisible = selection.Items.Count > 0;
+        trigger.Click += (_, _) => { if (lookupDropDown is null) return;
+            lookupDropDown.IsVisible = !lookupDropDown.IsVisible; if (lookupDropDown.IsVisible) query.Focus(); };
         query.KeyDown += (_, e) =>
         {
-            if (e.Key != Key.Down || selection.Items.Count == 0) return;
-            results.IsVisible = true; results.SelectedIndex = Math.Max(0, selection.ActiveIndex); results.Focus(); e.Handled = true;
+            if (e.Key == Key.Escape) { if (lookupDropDown is not null) lookupDropDown.IsVisible = false; trigger.Focus(); e.Handled = true; }
+            else if (e.Key == Key.Down && selection.Items.Count > 0)
+            { results.SelectedIndex = Math.Max(0, selection.ActiveIndex); results.Focus(); e.Handled = true; }
         };
         results.SelectionChanged += (_, _) => selection.SetActive(results.SelectedItem as EditorLookupOption);
         results.PointerReleased += (_, _) => CommitSelection();
         results.KeyDown += (_, e) =>
         {
             if (e.Key == Key.Enter) { CommitSelection(); e.Handled = true; }
-            else if (e.Key == Key.Escape) { results.IsVisible = false; query.Focus(); e.Handled = true; }
+            else if (e.Key == Key.Escape) { if (lookupDropDown is not null) lookupDropDown.IsVisible = false; trigger.Focus(); e.Handled = true; }
         };
-        panel.Children.Add(selectedDisplay); panel.Children.Add(query); panel.Children.Add(results); return panel;
+        popupContent.Children.Add(query); popupContent.Children.Add(results);
+        lookupDropDown = new Border { Tag = "LOOKUP_DROPDOWN", Child = popupContent, IsVisible = false,
+            MaxHeight = EditorPresentationTokens.PopupMaxHeight, BorderThickness = new Thickness(EditorPresentationTokens.BorderThickness),
+            Padding = new Thickness(EditorPresentationTokens.ContentPadding),
+            CornerRadius = new CornerRadius(EditorPresentationTokens.CornerRadius), ClipToBounds = true };
+        EditorThemeResources.Bind(lookupDropDown, Border.MaxHeightProperty, EditorThemeResources.PopupMaxHeight);
+        EditorThemeResources.Bind(lookupDropDown, Border.BorderBrushProperty, EditorThemeResources.SurfaceBorderBrush);
+        EditorThemeResources.Bind(lookupDropDown, Border.BackgroundProperty, EditorThemeResources.SurfaceBackground);
+        Grid.SetRow(lookupDropDown, 1);
+        panel.Children.Add(trigger); panel.Children.Add(lookupDropDown); return panel;
     }
 
     private Control CreateMultiChoiceSeam()
     {
         var selected = (State.CandidateValue as IEnumerable<string> ?? []).ToHashSet(StringComparer.Ordinal);
-        var panel = new StackPanel { Spacing = 2 };
+        var panel = new Grid { RowDefinitions = new("Auto,Auto") };
+        var trigger = new Button { Height = EditorPresentationTokens.ControlHeight,
+            Tag = "MULTICHOICE_TRIGGER",
+            Padding = new Thickness(0), Background = Brushes.Transparent, BorderThickness = new Thickness(0),
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            VerticalContentAlignment = VerticalAlignment.Center };
+        EditorThemeResources.Bind(trigger, Button.HeightProperty, EditorThemeResources.ControlHeight);
+        var choices = new StackPanel { Spacing = EditorPresentationTokens.FieldGap,
+            HorizontalAlignment = HorizontalAlignment.Stretch };
+        EditorThemeResources.Bind(choices, StackPanel.SpacingProperty, EditorThemeResources.MultiChoiceOptionGap);
+        var summary = new TextBlock { VerticalAlignment = VerticalAlignment.Center };
+        var triggerContent = EditorSurfaceGeometry.WithTrailingAffordance(summary, EditorAffordanceKind.Dropdown, "Open choices");
+        trigger.Content = triggerContent;
+        void UpdateSummary() => summary.Text = selected.Count switch
+        {
+            0 => "Select…",
+            1 => Definition.Choices.FirstOrDefault(x => selected.Contains(x.SemanticOptionId))?.ToString() ?? "1 selected",
+            _ => $"{selected.Count} selected"
+        };
         foreach (var option in Definition.Choices)
         {
-            var check = new CheckBox { Content = option.SafeDisplayText ?? option.DisplayLabelKey.Value,
-                IsChecked = selected.Contains(option.SemanticOptionId) };
+            var check = new CheckBox { IsChecked = selected.Contains(option.SemanticOptionId),
+                Padding = new Thickness(0), HorizontalContentAlignment = HorizontalAlignment.Center,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            // Avalonia owns semantics/input; DynamicUI24 owns the reusable visual ControlTheme.
+            DynamicCheckBoxPresentation.Apply(check);
+            var leadingSlot = new Grid { Width = EditorPresentationTokens.LeadingSlotWidth,
+                Height = EditorPresentationTokens.OptionRowHeight, HorizontalAlignment = HorizontalAlignment.Left };
+            EditorThemeResources.Bind(leadingSlot, Grid.WidthProperty, EditorThemeResources.LeadingSlotWidth);
+            EditorThemeResources.Bind(leadingSlot, Grid.HeightProperty, EditorThemeResources.PopupOptionHeight);
+            leadingSlot.Children.Add(check);
+            var optionLabel = new TextBlock { Text = option.SafeDisplayText ?? option.DisplayLabelKey.Value,
+                VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
+            AutomationProperties.SetName(check, optionLabel.Text);
+            var optionRow = new Grid { ColumnDefinitions = new("Auto,*"), Height = EditorPresentationTokens.OptionRowHeight,
+                HorizontalAlignment = HorizontalAlignment.Stretch, Tag = "MULTICHOICE_OPTION_ROW" };
+            EditorThemeResources.Bind(optionRow, Grid.HeightProperty, EditorThemeResources.PopupOptionHeight);
+            optionRow.Children.Add(leadingSlot); Grid.SetColumn(optionLabel, 1); optionRow.Children.Add(optionLabel);
             check.IsCheckedChanged += (_, _) => { if (check.IsChecked == true) selected.Add(option.SemanticOptionId); else selected.Remove(option.SemanticOptionId);
-                State.SetCandidate(selected.ToArray()); CandidateChanged?.Invoke(this, EventArgs.Empty); };
-            panel.Children.Add(check);
+                State.SetCandidate(selected.Order(StringComparer.Ordinal).ToArray()); UpdateSummary(); CandidateChanged?.Invoke(this, EventArgs.Empty); };
+            choices.Children.Add(optionRow);
         }
+        var scroller = new ScrollViewer
+        {
+            Tag = "MULTICHOICE_SCROLL", Content = choices, MaxHeight = EditorPresentationTokens.PopupMaxHeight,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+        };
+        EditorThemeResources.Bind(scroller, ScrollViewer.MaxHeightProperty, EditorThemeResources.PopupMaxHeight);
+        var dropDown = multiChoiceDropDown = new Border
+        {
+            Tag = "MULTICHOICE_DROPDOWN",
+            Child = scroller, IsVisible = false, BorderThickness = new Thickness(EditorPresentationTokens.BorderThickness),
+            Padding = new Thickness(EditorPresentationTokens.ContentPadding),
+            CornerRadius = new CornerRadius(EditorPresentationTokens.CornerRadius), ClipToBounds = true,
+        };
+        EditorThemeResources.Bind(dropDown, Border.BorderBrushProperty, EditorThemeResources.SurfaceBorderBrush);
+        EditorThemeResources.Bind(dropDown, Border.BackgroundProperty, EditorThemeResources.SurfaceBackground);
+        Grid.SetRow(dropDown, 1);
+        void SetOpen(bool open) => dropDown.IsVisible = open;
+        trigger.Click += (_, _) => SetOpen(!dropDown.IsVisible);
+        trigger.KeyDown += (_, e) =>
+        {
+            if (e.Key is Key.Down or Key.Space or Key.Enter) { SetOpen(true); e.Handled = true; }
+            else if (e.Key == Key.Escape) { SetOpen(false); e.Handled = true; }
+        };
+        choices.KeyDown += (_, e) => { if (e.Key == Key.Escape) { SetOpen(false); trigger.Focus(); e.Handled = true; } };
+        UpdateSummary(); panel.Children.Add(trigger); panel.Children.Add(dropDown);
         return panel;
     }
 
@@ -381,20 +522,49 @@ public sealed class AvaloniaEditorPresenter : UserControl
             SelectedDate = value, SelectedDateFormat = CalendarDatePickerFormat.Custom,
             CustomDateFormatString = DateFormat(Culture), Width = EditorPresentationTokens.CompactControlWidth,
             Height = EditorPresentationTokens.ControlHeight, HorizontalAlignment = HorizontalAlignment.Left,
+            Padding = new Thickness(EditorPresentationTokens.ContentPadding, 0,
+                EditorPresentationTokens.TrailingSlotWidth + EditorPresentationTokens.ContentPadding, 0),
+            VerticalContentAlignment = VerticalAlignment.Center,
             IsEnabled = Resolution.InteractionState == EditorInteractionState.Editable,
         };
+        EditorThemeResources.Bind(picker, CalendarDatePicker.HeightProperty, EditorThemeResources.ControlHeight);
+        picker.Classes.Add("dui-date");
+        picker.AttachedToVisualTree += (_, _) => Dispatcher.UIThread.Post(() =>
+        {
+            var button = picker.GetVisualDescendants().OfType<Button>()
+                .FirstOrDefault(x => x.Name == "PART_Button");
+            if (button is null || Equals(button.Tag, "DUI_CATALOG_CALENDAR")) return;
+            var icon = new SemanticIcon
+            {
+                Width = EditorPresentationTokens.IconSize,
+                Height = EditorPresentationTokens.IconSize,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            icon.SetIcon(EditorIcons, StandardIconKeys.Calendar);
+            EditorThemeResources.Bind(icon, SemanticIcon.WidthProperty, EditorThemeResources.IconSize);
+            EditorThemeResources.Bind(icon, SemanticIcon.HeightProperty, EditorThemeResources.IconSize);
+            EditorThemeResources.Bind(icon, SemanticIcon.ForegroundProperty, EditorThemeResources.IconBrush);
+            button.Content = icon;
+            button.Tag = "DUI_CATALOG_CALENDAR";
+        }, DispatcherPriority.Loaded);
         calendarInputs.Add(picker); return picker;
     }
     private static string DateFormat(CultureInfo culture) => culture.Name.Equals("vi-VN", StringComparison.OrdinalIgnoreCase)
         ? "dd/MM/yyyy" : culture.DateTimeFormat.ShortDatePattern;
 
-    private TextBox CompactTimeText(TimeOnly? value)
+    private (Control Surface, TextBox Input) CompactTimeEditor(TimeOnly? value)
     {
         var text = new TextBox { Text = value?.ToString("HH:mm", CultureInfo.InvariantCulture), Watermark = "HH:mm",
-            Width = EditorPresentationTokens.CompactControlWidth, Height = EditorPresentationTokens.ControlHeight,
-            HorizontalAlignment = HorizontalAlignment.Left, IsReadOnly = Resolution.InteractionState == EditorInteractionState.ReadOnly };
+            Padding = new Thickness(0),
+            BorderThickness = new Thickness(0), Background = Brushes.Transparent,
+            HorizontalAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Center,
+            IsReadOnly = Resolution.InteractionState == EditorInteractionState.ReadOnly };
         NativeEditorInputOwnership.Enable(text); nativeTextInputs.Add(text);
-        return text;
+        var surface = EditorSurfaceGeometry.WithTrailingAffordance(text, EditorAffordanceKind.Clock, "Time");
+        surface.Width = EditorPresentationTokens.TimeControlWidth;
+        EditorThemeResources.Bind(surface, Border.WidthProperty, EditorThemeResources.WidthTime);
+        return (surface, text);
     }
     private void CaptureTime(TextBox text, Action<TimeOnly?> apply)
     {
@@ -409,15 +579,45 @@ public sealed class AvaloniaEditorPresenter : UserControl
     {
         HorizontalAlignment = HorizontalAlignment.Left;
         control.HorizontalAlignment = HorizontalAlignment.Left;
-        control.MaxWidth = Resolution.Kind switch
+        var width = Definition.Width switch
         {
-            EditorKind.Date or EditorKind.Time => EditorPresentationTokens.CompactControlWidth,
-            EditorKind.DateTime => EditorPresentationTokens.MediumControlWidth,
-            EditorKind.DateRange => EditorPresentationTokens.DateRangeWidth,
-            EditorKind.Boolean => EditorPresentationTokens.CompactControlWidth,
-            EditorKind.MultilineText => EditorPresentationTokens.FormMaxReadableWidth,
-            _ => EditorPresentationTokens.MediumControlWidth,
+            EditorWidthClass.Short => EditorPresentationTokens.ShortControlWidth,
+            EditorWidthClass.Compact => EditorPresentationTokens.CompactControlWidth,
+            EditorWidthClass.Medium => EditorPresentationTokens.MediumControlWidth,
+            EditorWidthClass.Long => EditorPresentationTokens.LongControlWidth,
+            EditorWidthClass.Fill => EditorPresentationTokens.FormMaxReadableWidth,
+            _ => Resolution.Kind switch
+            {
+                EditorKind.Time => EditorPresentationTokens.TimeControlWidth,
+                EditorKind.Date or EditorKind.Boolean => EditorPresentationTokens.CompactControlWidth,
+                EditorKind.DateTime => EditorPresentationTokens.DateTimeWidth,
+                EditorKind.Choice => EditorPresentationTokens.MediumControlWidth,
+                EditorKind.DateRange => EditorPresentationTokens.DateRangeWidth,
+                EditorKind.MultilineText or EditorKind.SearchLookup or EditorKind.MultiChoice => EditorPresentationTokens.LongControlWidth,
+                _ => EditorPresentationTokens.MediumControlWidth,
+            }
         };
+        control.Width = width;
+        control.MaxWidth = width;
+        var resource = Definition.Width switch
+        {
+            EditorWidthClass.Short => EditorThemeResources.WidthShort,
+            EditorWidthClass.Compact => EditorThemeResources.WidthCompact,
+            EditorWidthClass.Medium => EditorThemeResources.WidthMedium,
+            EditorWidthClass.Long => EditorThemeResources.WidthLong,
+            EditorWidthClass.Fill => EditorThemeResources.WidthFill,
+            _ => Resolution.Kind switch
+            {
+                EditorKind.Time => EditorThemeResources.WidthTime,
+                EditorKind.Date or EditorKind.Boolean => EditorThemeResources.WidthCompact,
+                EditorKind.DateTime => EditorThemeResources.WidthDateTime,
+                EditorKind.DateRange => EditorThemeResources.WidthDateRange,
+                EditorKind.MultilineText or EditorKind.SearchLookup or EditorKind.MultiChoice => EditorThemeResources.WidthLong,
+                _ => EditorThemeResources.WidthMedium,
+            }
+        };
+        EditorThemeResources.Bind(control, Control.WidthProperty, resource);
+        EditorThemeResources.Bind(control, Control.MaxWidthProperty, resource);
     }
 
     private void ApplyStateToControl()

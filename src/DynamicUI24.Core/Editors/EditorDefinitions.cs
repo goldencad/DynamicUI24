@@ -49,6 +49,8 @@ public enum EditorCapability
 
 public enum PercentageStorageScale { Fraction, WholeNumber }
 public enum EditorCommitPolicy { Explicit, OnEnter, OnFocusLoss }
+/// <summary>Semantic form width; presentation maps this identity to theme-owned measurements.</summary>
+public enum EditorWidthClass { Auto, Short, Compact, Medium, Long, Fill }
 public enum EditorMaskKind { Simple, Numeric, DateTime, TimeSpan, Regex }
 public enum EditorActionKind { Browse, Select, Open, Clear, Refresh, Help, Reveal, Custom }
 
@@ -93,7 +95,7 @@ public sealed record EditorDefinition
         EditorMaskDefinition? mask = null, bool isReadOnly = false, bool isDisabled = false,
         bool allowsNull = true, EditorCommitPolicy commitPolicy = EditorCommitPolicy.Explicit,
         decimal? minimum = null, decimal? maximum = null, decimal? increment = null,
-        int? maxLength = null, bool wrapText = true)
+        int? maxLength = null, bool wrapText = true, EditorWidthClass width = EditorWidthClass.Auto)
     {
         EditorCode = editorCode;
         ConsumerSemanticId = consumerSemanticId;
@@ -118,6 +120,7 @@ public sealed record EditorDefinition
         Increment = increment;
         MaxLength = maxLength;
         WrapText = wrapText;
+        Width = width;
     }
 
     public EditorCode EditorCode { get; }
@@ -143,6 +146,7 @@ public sealed record EditorDefinition
     public decimal? Increment { get; }
     public int? MaxLength { get; }
     public bool WrapText { get; }
+    public EditorWidthClass Width { get; }
 }
 
 public readonly record struct DateRangeValue(DateOnly? Start, DateOnly? End)

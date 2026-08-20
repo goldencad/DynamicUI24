@@ -5,4 +5,7 @@
     <ProjectReference Include="../DynamicUI24.Core/DynamicUI24.Core.csproj" />
     <ProjectReference Include="../DynamicUI24.Shared/DynamicUI24.Shared.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Assets/Icons/*.svg" LogicalName="DynamicUI24.Icons.%(Filename)%(Extension)" />
+  </ItemGroup>
 </Project>

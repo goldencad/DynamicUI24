@@ -6,6 +6,6 @@ Light and Dark dictionaries provide color values. System mode delegates variant 
 
 Spacing/radius tokens define stable geometry across interaction states. Typography tokens are Caption, Label, Body, and Title. XS/Small/Medium/Large/XL action presets combine height, icon size, padding, and gap tokens. Metadata overrides are expressed in logical units, then global `UiScale` is applied. Font Size additionally scales typography. Controls must never counteract or divide out those global preferences.
 
-Universal Editor form composition uses shared `EditorPresentationTokens`: FieldGap, FieldGroupGap, SectionGap, InlineGap, ControlHeight, CompactControlWidth, MediumControlWidth, DateRangeWidth, and FormMaxReadableWidth. Small semantic values remain compact instead of stretching to available workspace width. DateRange wraps its two compact semantic groups when the host narrows.
+Universal Editor form composition uses stable semantic roles mapped by `DuiEditor*` and `DuiPopup*` theme resources. `EditorPresentationTokens` supplies only Standard relationships and compatibility defaults; rendered controls bind to the theme resources. Small semantic values remain compact instead of stretching to available workspace width. DateRange wraps its two compact semantic groups when the host narrows.
 
 When adding a token, maintainers provide a stable semantic name, Light/Dark behavior where applicable, safe default, documentation, and regression coverage. Renaming or changing an existing token's meaning breaks the public styling contract.

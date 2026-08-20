@@ -12,7 +12,7 @@ public sealed class SemanticIconRegistry : IIconRegistry
 
     private readonly Dictionary<IconKey, IconDefinition> icons = new();
 
-    public SemanticIconRegistry() => RegisterDefaults();
+    public SemanticIconRegistry(DynamicUI24IconCatalog? catalog = null) => RegisterDefaults(catalog ?? new());
 
     public IconDefinition Resolve(IconKey key) => icons.TryGetValue(key, out var icon) ? icon : Missing;
 
@@ -27,9 +27,9 @@ public sealed class SemanticIconRegistry : IIconRegistry
         icons[icon.Key] = icon;
     }
 
-    private void RegisterDefaults()
+    private void RegisterDefaults(DynamicUI24IconCatalog catalog)
     {
-        Register(new(StandardIconKeys.Search, "M10,4 A6,6 0 1 0 10,16 A6,6 0 1 0 10,4 M14.5,14.5 L21,21"));
+        foreach (var definition in catalog.LoadDefinitions()) Register(definition);
         Register(new(StandardIconKeys.Filter, "M3,5 L21,5 L14,13 L14,20 L10,18 L10,13 Z"));
         Register(new(StandardIconKeys.Refresh, "M20,7 L20,3 L16,3 M20,3 L16,7 M19,11 A8,8 0 1 1 16,6"));
         Register(new(StandardIconKeys.Add, "M12,4 L12,20 M4,12 L20,12"));
@@ -43,7 +43,6 @@ public sealed class SemanticIconRegistry : IIconRegistry
         Register(new(StandardIconKeys.Settings, "M12,3 A2,2 0 1 0 12,7 A2,2 0 1 0 12,3 M12,9 A3,3 0 1 0 12,15 A3,3 0 1 0 12,9 M12,17 A2,2 0 1 0 12,21 A2,2 0 1 0 12,17"));
         Register(new(StandardIconKeys.Warning, "M12,3 L22,21 L2,21 Z M12,9 L12,15 M12,18 L12,18.1"));
         Register(new(StandardIconKeys.Error, "M4,4 L20,20 M20,4 L4,20"));
-        Register(new(StandardIconKeys.Info, "M12,3 A9,9 0 1 0 12,21 A9,9 0 1 0 12,3 M12,10 L12,17 M12,7 L12,7.1"));
         Register(new(StandardIconKeys.Success, "M3,12 L9,18 L21,5"));
         Register(new(StandardIconKeys.Formula, "M18,5 L9,5 L6,12 L3,19 M6,12 L14,12 M15,16 L21,16 M18,13 L18,19"));
         Register(new(StandardIconKeys.Application, "M4,4 L20,4 L20,20 L4,20 Z"));
@@ -69,12 +68,10 @@ public sealed class SemanticIconRegistry : IIconRegistry
         Register(new(StandardIconKeys.Clone, "M8,8 L20,8 L20,20 L8,20 Z M4,4 L16,4 L16,8 M4,4 L4,16 L8,16"));
         Register(new(StandardIconKeys.Publish, "M12,20 L12,5 M7,10 L12,5 L17,10 M5,20 L19,20"));
         Register(new(StandardIconKeys.Retire, "M5,7 L19,7 M8,7 L8,20 M16,7 L16,20 M7,4 L17,4 L19,7 L5,7 Z M11,11 L15,15 M15,11 L11,15"));
-        Register(new(StandardIconKeys.More, new FontGlyphIconSource("⋯", ".AppleSystemUIFont")));
         Register(new(StandardIconKeys.Privacy, "M12,3 C7,3 4,7 4,12 C4,17 8,20 12,22 C16,20 20,17 20,12 C20,7 17,3 12,3 M9,12 A3,3 0 1 0 15,12 A3,3 0 1 0 9,12"));
         Register(new(StandardIconKeys.PrivacyOn, "M6,11 L6,20 L18,20 L18,11 Z M8,11 L8,8 A4,4 0 0 1 16,8 L16,11"));
         Register(new(StandardIconKeys.PrivacyOff, "M5,5 L19,19 M6,11 L6,20 L18,20 L18,11 M9,9 L9,8 A3,3 0 0 1 14,6"));
         Register(new(StandardIconKeys.PrivacyAuto, "M6,11 L6,20 L18,20 L18,11 Z M8,11 L8,8 A4,4 0 0 1 16,8 L16,11 M12,14 L12,17"));
-        Register(new(StandardIconKeys.Reveal, "M2,12 C6,5 18,5 22,12 C18,19 6,19 2,12 M12,9 A3,3 0 1 0 12,15 A3,3 0 1 0 12,9"));
         Register(new(StandardIconKeys.Hide, "M3,3 L21,21 M2,12 C6,5 18,5 22,12"));
         Register(new(StandardIconKeys.Restricted, "M12,3 L21,7 L20,15 C18,19 15,21 12,22 C9,21 6,19 4,15 L3,7 Z"));
     }

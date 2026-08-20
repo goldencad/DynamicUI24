@@ -66,6 +66,35 @@ public sealed class ThemeLifecycleFoundationTests
     }
 
     [Fact]
+    public void EditorGeometryIsThemeResolvedAndInvalidRelationshipsCannotPublish()
+    {
+        var mappings = ValidMappings() with
+        {
+            Spacing = new(ImmutableDictionary<DesignTokenKey, double>.Empty
+                .Add(DesignTokens.Editor.ContentPadding, 4)
+                .Add(DesignTokens.Editor.MultiChoiceOptionGap, 8)),
+            Sizing = new(ImmutableDictionary<DesignTokenKey, double>.Empty
+                .Add(DesignTokens.Size.HitTargetMinimum, 32)
+                .Add(DesignTokens.Size.EditorControlHeight, 32)
+                .Add(DesignTokens.Size.EditorIconSize, 16)
+                .Add(DesignTokens.Size.EditorTrailingSlotWidth, 12)
+                .Add(DesignTokens.Size.EditorLeadingSlotWidth, 24)
+                .Add(DesignTokens.Size.MultiChoiceCheckSize, 20)
+                .Add(DesignTokens.Size.PopupMaxHeight, 32)
+                .Add(DesignTokens.Size.PopupOptionHeight, 32))
+        };
+        var draft = Draft(Published(new("CURRENT"), 1, "Current", mappings)).Snapshot();
+        var result = Validator().Validate(draft);
+        var preview = new ThemePreviewSession(new("preview"), draft);
+
+        Assert.Contains(result.Diagnostics, item => item.Code == "THEME_EDITOR_TRAILING_SLOT_INVALID");
+        Assert.Contains(result.Diagnostics, item => item.Code == "THEME_EDITOR_LEADING_CHECK_SLOT_INVALID");
+        Assert.Contains(result.Diagnostics, item => item.Code == "THEME_EDITOR_CONTENT_PADDING_BELOW_MINIMUM");
+        Assert.Contains(result.Diagnostics, item => item.Code == "THEME_POPUP_HEIGHT_INVALID");
+        Assert.Equal("16", preview.Resolve(DesignTokens.Size.EditorIconSize, ThemeMode.Light)?.Value);
+    }
+
+    [Fact]
     public async Task PublishAndActivateIsAtomicRetainsHistoryAndSupportsIdempotentRetry()
     {
         var repository = new TestThemeRepository(Published(new("CURRENT"), 1, "Current", ValidMappings()));

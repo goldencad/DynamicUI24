@@ -47,6 +47,18 @@ public sealed class Task11BArchitectureTests
     }
 
     [Fact]
+    public void TreeViewItemTemplateIsNeutralSoTreeRowOwnsEveryVisualState()
+    {
+        var tree = Read("src/DynamicUI24.Avalonia/Presentation/DynamicTreeHost.axaml");
+        Assert.Contains("TreeViewItem is visually neutral", tree, StringComparison.Ordinal);
+        Assert.Contains("TreeViewItem:pointerover, TreeViewItem:selected, TreeViewItem:focus-within", tree,
+            StringComparison.Ordinal);
+        Assert.Contains("Border.tree-row.selected:pointerover", tree, StringComparison.Ordinal);
+        Assert.Contains("TreeViewItem /template/ Border", tree, StringComparison.Ordinal);
+        Assert.Contains("the semantic tree-row below is authoritative", tree, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void SettingsUseFrameworkSemanticNavigationReadableWidthsAndCompactEmptyShellState()
     {
         var settings = Read("src/DynamicUI24.Avalonia/Presentation/ApplicationMenuView.cs");

@@ -147,6 +147,29 @@ public sealed class UniversalEditorFoundationTests
     public void DateRangeOrderingIsDeterministic() =>
         Assert.False(new DateRangeValue(new(2026, 2, 2), new(2026, 2, 1)).IsOrdered);
 
+    [Fact]
+    public void SemanticWidthIsMetadataAndDoesNotChangeEditorMeaning()
+    {
+        var compact = new EditorDefinition(new("CHOICE"), new("FORM.CHOICE"), EditorValueType.Choice,
+            choices: [new("ACTIVE", new("Status.Active"), "Active")], width: EditorWidthClass.Compact);
+        var localized = compact.Choices[0] with { SafeDisplayText = "Đang hoạt động" };
+
+        Assert.Equal(EditorWidthClass.Compact, compact.Width);
+        Assert.Equal("ACTIVE", localized.SemanticOptionId);
+        Assert.Equal(EditorKind.Choice, new EditorResolver().Resolve(compact,
+            EditorPlatformCapabilities.AllNative).Kind);
+    }
+
+    [Fact]
+    public void MultiChoiceSelectionUsesStableSemanticIdentities()
+    {
+        var selected = new HashSet<string>(StringComparer.Ordinal) { "VI", "EN" };
+        var relocalized = new[] { new EditorChoiceOption("VI", new("Language.Vietnamese"), "Tiếng Việt"),
+            new EditorChoiceOption("EN", new("Language.English"), "English") };
+
+        Assert.All(relocalized, option => Assert.Contains(option.SemanticOptionId, selected));
+    }
+
     private sealed class CountingProvider : IEditorLookupProvider
     {
         public string ProviderCode => "COUNT"; public int Calls { get; private set; }

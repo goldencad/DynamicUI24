@@ -14,9 +14,26 @@
         <Style Selector="TreeViewItem">
           <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
           <Setter Property="FontSize" Value="{DynamicResource DuiTypographyNavigation}" />
+          <Setter Property="Background" Value="Transparent" />
+          <Setter Property="BorderBrush" Value="Transparent" />
+          <Setter Property="BorderThickness" Value="0" />
+        </Style>
+        <!-- TreeViewItem is visually neutral; tree-row is the sole semantic state surface. -->
+        <Style Selector="TreeViewItem:pointerover, TreeViewItem:selected, TreeViewItem:focus-within">
+          <Setter Property="Background" Value="Transparent" />
+          <Setter Property="BorderBrush" Value="Transparent" />
         </Style>
         <Style Selector="TreeViewItem /template/ ContentPresenter">
           <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+          <Setter Property="Background" Value="Transparent" />
+          <Setter Property="BorderBrush" Value="Transparent" />
+          <Setter Property="BorderThickness" Value="0" />
+        </Style>
+        <!-- Neutralize every framework template surface; the semantic tree-row below is authoritative. -->
+        <Style Selector="TreeViewItem /template/ Border">
+          <Setter Property="Background" Value="Transparent" />
+          <Setter Property="BorderBrush" Value="Transparent" />
+          <Setter Property="BorderThickness" Value="0" />
         </Style>
         <Style Selector="TreeViewItem /template/ ToggleButton">
           <Setter Property="Width" Value="{DynamicResource DuiNavigationChevronSize}" />

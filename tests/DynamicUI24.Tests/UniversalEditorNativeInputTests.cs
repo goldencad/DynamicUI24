@@ -2,6 +2,8 @@ using System.Collections.Immutable;
 using System.Globalization;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.Layout;
+using Avalonia.LogicalTree;
 using DynamicUI24.Avalonia.Presentation.Editors;
 using DynamicUI24.Core.Editors;
 using Xunit;
@@ -86,7 +88,7 @@ public sealed class UniversalEditorNativeInputTests
         var presenter = Create(definition, state);
         var picker = Assert.IsType<CalendarDatePicker>(presenter.NativeEditor);
         Assert.Equal("dd/MM/yyyy", picker.CustomDateFormatString);
-        Assert.Equal(EditorPresentationTokens.CompactControlWidth, picker.Width);
+        Assert.Equal(HorizontalAlignment.Left, picker.HorizontalAlignment);
         picker.SelectedDate = new DateTime(2026, 8, 19);
         Assert.True(await presenter.CommitAsync());
         Assert.Equal(new DateOnly(2026, 8, 19), state.CommittedValue);
@@ -98,9 +100,13 @@ public sealed class UniversalEditorNativeInputTests
         var definition = Definition(EditorValueType.Time);
         var state = new EditorRuntimeState(definition, new TimeOnly(9, 30));
         var presenter = Create(definition, state);
-        var time = Assert.IsType<TextBox>(presenter.NativeEditor);
+        var surface = Assert.IsType<EditorSurface>(presenter.NativeEditor);
+        Assert.True(surface.OwnsBorder);
+        var time = Assert.Single(presenter.NativeTextInputs);
         Assert.Equal("09:30", time.Text);
         Assert.True(InputMethod.GetIsInputMethodEnabled(time));
+        Assert.Contains(presenter.GetLogicalDescendants().OfType<EditorAffordanceSlot>(),
+            x => x.Kind == EditorAffordanceKind.Clock);
         time.Text = "14:45";
         Assert.True(await presenter.CommitAsync());
         Assert.Equal(new TimeOnly(14, 45), state.CommittedValue);
@@ -114,7 +120,7 @@ public sealed class UniversalEditorNativeInputTests
         var dateTime = Create(dateTimeDefinition, dateTimeState);
         var dateTimeGrid = Assert.IsType<Grid>(dateTime.NativeEditor);
         Assert.Single(dateTimeGrid.Children.OfType<CalendarDatePicker>());
-        Assert.Single(dateTimeGrid.Children.OfType<TextBox>());
+        Assert.Single(dateTime.NativeTextInputs);
         Assert.True(await dateTime.CommitAsync());
         Assert.Equal(new DateTime(2026, 8, 18, 9, 30, 0), dateTimeState.CommittedValue);
 

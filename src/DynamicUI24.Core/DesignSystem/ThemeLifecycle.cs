@@ -224,6 +224,8 @@ public sealed class ThemeValidator(IThemeValidationPolicy policy)
             hitTarget < policy.MinimumHitTarget)
             diagnostics.Add(Error("THEME_HIT_TARGET_BELOW_MINIMUM", DesignTokens.Size.HitTargetMinimum));
 
+        ValidateEditorGeometry(draft.Mappings, policy.MinimumHitTarget, diagnostics);
+
         foreach (var (recipe, dependencies) in draft.Mappings.ComponentRecipeDependencies)
         foreach (var token in dependencies.Where(token => !draft.Mappings.Contains(token)))
             diagnostics.Add(new(ThemeValidationSeverity.Error, "THEME_RECIPE_DEPENDENCY_MISSING", token, recipe));
@@ -240,6 +242,40 @@ public sealed class ThemeValidator(IThemeValidationPolicy policy)
     {
         foreach (var token in values.Where(pair => pair.Value < 0).Select(pair => pair.Key))
             diagnostics.Add(Error(code, token));
+    }
+
+    private static void ValidateEditorGeometry(ThemeMappings mappings, double minimumHitTarget,
+        ImmutableArray<ThemeValidationDiagnostic>.Builder diagnostics)
+    {
+        const double standardMinimumContentPadding = 8;
+        var sizing = mappings.Sizing.Values;
+        var spacing = mappings.Spacing.Values;
+        var radius = mappings.Radius.Values;
+        var stroke = mappings.Stroke.Values;
+        if (sizing.TryGetValue(DesignTokens.Size.EditorControlHeight, out var height) && height < minimumHitTarget)
+            diagnostics.Add(Error("THEME_EDITOR_HEIGHT_BELOW_MINIMUM", DesignTokens.Size.EditorControlHeight));
+        if (sizing.TryGetValue(DesignTokens.Size.EditorIconSize, out var icon) && icon <= 0)
+            diagnostics.Add(Error("THEME_EDITOR_ICON_INVALID", DesignTokens.Size.EditorIconSize));
+        if (sizing.TryGetValue(DesignTokens.Size.EditorTrailingSlotWidth, out var slot) && sizing.TryGetValue(DesignTokens.Size.EditorIconSize, out var iconSize) && slot < iconSize)
+            diagnostics.Add(Error("THEME_EDITOR_TRAILING_SLOT_INVALID", DesignTokens.Size.EditorTrailingSlotWidth));
+        if (sizing.TryGetValue(DesignTokens.Size.EditorLeadingSlotWidth, out var leadingSlot) &&
+            sizing.TryGetValue(DesignTokens.Size.MultiChoiceCheckSize, out var checkSize) &&
+            spacing.TryGetValue(DesignTokens.Editor.MultiChoiceOptionGap, out var requiredPadding) &&
+            leadingSlot < checkSize + requiredPadding)
+            diagnostics.Add(Error("THEME_EDITOR_LEADING_CHECK_SLOT_INVALID", DesignTokens.Size.EditorLeadingSlotWidth));
+        if (spacing.TryGetValue(DesignTokens.Editor.ContentPadding, out var contentPadding) &&
+            contentPadding < standardMinimumContentPadding)
+            diagnostics.Add(Error("THEME_EDITOR_CONTENT_PADDING_BELOW_MINIMUM", DesignTokens.Editor.ContentPadding));
+        if (sizing.TryGetValue(DesignTokens.Size.PopupMaxHeight, out var maxHeight) && sizing.TryGetValue(DesignTokens.Size.PopupOptionHeight, out var optionHeight) && maxHeight <= optionHeight)
+            diagnostics.Add(Error("THEME_POPUP_HEIGHT_INVALID", DesignTokens.Size.PopupMaxHeight));
+        foreach (var token in new[] { DesignTokens.Size.EditorShort, DesignTokens.Size.EditorCompact, DesignTokens.Size.EditorMedium, DesignTokens.Size.EditorLong, DesignTokens.Size.EditorFill }.Where(token => sizing.TryGetValue(token, out var value) && value <= 0))
+            diagnostics.Add(Error("THEME_EDITOR_WIDTH_INVALID", token));
+        foreach (var token in new[] { DesignTokens.Editor.Radius, DesignTokens.Editor.PopupRadius }.Where(token => radius.TryGetValue(token, out var value) && value < 0))
+            diagnostics.Add(Error("THEME_EDITOR_RADIUS_INVALID", token));
+        foreach (var token in new[] { DesignTokens.Editor.BorderThickness, DesignTokens.Editor.PopupBorderThickness }.Where(token => stroke.TryGetValue(token, out var value) && value < 0))
+            diagnostics.Add(Error("THEME_EDITOR_BORDER_INVALID", token));
+        foreach (var token in new[] { DesignTokens.Editor.ContentPadding, DesignTokens.Editor.InlineGap, DesignTokens.Editor.PopupPadding, DesignTokens.Editor.MultiChoiceOptionGap }.Where(token => spacing.TryGetValue(token, out var value) && value < 0))
+            diagnostics.Add(Error("THEME_EDITOR_SPACING_INVALID", token));
     }
 }
 
@@ -263,6 +299,11 @@ public sealed class ThemePreviewSession(ThemePreviewSessionId sessionId, ThemeDr
             return new(color);
         if (Draft.Mappings.Typography.Values.TryGetValue(token, out var font))
             return new(string.Join(',', new[] { font.PrimaryFamily }.Concat(font.FallbackFamilies)));
+        if (Draft.Mappings.Spacing.Values.TryGetValue(token, out var spacing)) return new(spacing.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        if (Draft.Mappings.Sizing.Values.TryGetValue(token, out var sizing)) return new(sizing.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        if (Draft.Mappings.Radius.Values.TryGetValue(token, out var radius)) return new(radius.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        if (Draft.Mappings.Stroke.Values.TryGetValue(token, out var stroke)) return new(stroke.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        if (Draft.Mappings.Elevation.Values.TryGetValue(token, out var elevation)) return new(elevation);
         return null;
     }
 }
